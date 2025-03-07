@@ -94,6 +94,98 @@ curl -X POST http://[MODEL_ENDPOINT]/v1/models/wine-quality:predict -d @sample_i
 
 - Use pre-commit hooks for code quality
 - Follow the branching strategy
+
+
+### Project Overview
+This is an MLOps project that implements an end-to-end machine learning pipeline for wine quality prediction using Kubeflow/Argo Workflows. The project demonstrates MLOps best practices including pipeline orchestration, containerization, and Kubernetes deployment.
+
+### Key Components
+
+1. **ML Pipeline** (`pipelines/wine_quality_pipeline.py`)
+   - Data Download & Validation
+   - Data Preprocessing with scikit-learn
+   - Model Training (Random Forest Regressor)
+   - Model Evaluation
+   - Model Packaging for Deployment
+   - Built using Kubeflow Pipeline SDK
+
+2. **Infrastructure**
+   - `Dockerfile`: Container definition for the ML components
+   - `k8s/`: Kubernetes manifests for deployment
+   - Currently running on Minikube with Argo Workflows
+
+3. **Data Management** (`data/`)
+   - Structured with `raw/` and `processed/` directories
+   - Uses the UCI Wine Quality dataset
+   - Includes data validation checks
+
+4. **Model Management** (`models/`)
+   - `trained/`: Directory for saved models
+   - `configs/`: Model configuration files
+   - Uses scikit-learn's Random Forest implementation
+
+5. **Application Code**
+   - `src/`: Core ML functionality
+   - `scripts/`:
+     - `run_pipeline.py`: Pipeline execution script
+     - `run_server.py`: Model serving script
+
+6. **Testing** (`tests/`)
+   - `test_model.py`: Model testing functionality
+
+### Pipeline Steps
+1. **Data Download**
+   - Downloads wine quality dataset from UCI repository
+   - Saves to temporary storage
+
+2. **Data Validation**
+   - Checks for missing values
+   - Validates quality range
+   - Generates validation report
+
+3. **Preprocessing**
+   - Feature scaling using StandardScaler
+   - Data splitting for training/testing
+   - Saves preprocessed features and labels
+
+4. **Model Training**
+   - Trains Random Forest model
+   - Configurable hyperparameters:
+     - n_estimators
+     - max_depth
+     - min_samples_split
+     - min_samples_leaf
+
+5. **Model Evaluation**
+   - Calculates metrics:
+     - MSE
+     - RMSE
+     - MAE
+     - R² score
+
+6. **Model Deployment Packaging**
+   - Bundles model artifacts
+   - Includes:
+     - Trained model
+     - Scaler
+     - Metrics
+     - API specifications
+
+### Current Status
+- Basic project structure is set up
+- Pipeline code is implemented and version controlled
+- Argo Workflows is installed on Minikube
+- Working on deploying the pipeline in the lightweight Argo environment
+
+### Next Steps (Potential)
+1. Complete Argo Workflows integration
+2. Add monitoring and logging
+3. Implement CI/CD pipeline
+4. Add model versioning
+5. Enhance testing coverage
+
+Would you like me to elaborate on any specific component or provide more details about a particular aspect of the project?
+
 - Write tests for new features
 
 ## License
