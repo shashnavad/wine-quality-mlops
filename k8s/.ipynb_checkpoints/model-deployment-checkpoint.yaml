@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wine-quality-model
+  labels:
+    app: wine-quality-model
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: wine-quality-model
+  template:
+    metadata:
+      labels:
+        app: wine-quality-model
+    spec:
+      containers:
+      - name: model-server
+        image: wine-quality-model:latest
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wine-quality-model-service
+spec:
+  selector:
+    app: wine-quality-model
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: LoadBalancer 
