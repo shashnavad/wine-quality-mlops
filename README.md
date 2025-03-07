@@ -112,7 +112,6 @@ This is an MLOps project that implements an end-to-end machine learning pipeline
 2. **Infrastructure**
    - `Dockerfile`: Container definition for the ML components
    - `k8s/`: Kubernetes manifests for deployment
-   - Currently running on Minikube with Argo Workflows
 
 3. **Data Management** (`data/`)
    - Structured with `raw/` and `processed/` directories
@@ -170,23 +169,6 @@ This is an MLOps project that implements an end-to-end machine learning pipeline
      - Scaler
      - Metrics
      - API specifications
-
-### Current Status
-- Basic project structure is set up
-- Pipeline code is implemented and version controlled
-- Argo Workflows is installed on Minikube
-- Working on deploying the pipeline in the lightweight Argo environment
-
-### Next Steps (Potential)
-1. Complete Argo Workflows integration
-2. Add monitoring and logging
-3. Implement CI/CD pipeline
-4. Add model versioning
-5. Enhance testing coverage
-
-Would you like me to elaborate on any specific component or provide more details about a particular aspect of the project?
-
-- Write tests for new features
 
 ## License
 
