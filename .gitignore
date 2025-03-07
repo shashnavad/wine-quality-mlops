@@ -28,6 +28,14 @@ coverage.xml
 # Model files
 *.pkl
 *.h5
+models/trained/*
+!models/trained/.gitkeep
+
+# Data
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
 
 # IDE
 .idea/
@@ -38,3 +46,10 @@ coverage.xml
 # OS
 .DS_Store
 Thumbs.db
+
+# Test workflow files
+argo_workflow.yaml
+hello_pipeline.yaml
+pipelines/test_pipeline.py
+pipelines/hello-workflow.yaml
+pipelines/convert_to_argo.py

@@ -1,6 +1,6 @@
 import kfp
 from kfp import dsl
-from kfp.components import create_component_from_func
+from kfp.dsl import component
 from typing import NamedTuple
 import pandas as pd
 import numpy as np
@@ -9,8 +9,10 @@ from sklearn.preprocessing import StandardScaler
 import mlflow
 import os
 
+# Define base image for all components
+BASE_IMAGE = 'wine-quality-mlops:latest'
 
-@create_component_from_func
+@component(base_image=BASE_IMAGE)
 def download_data() -> NamedTuple('Outputs', [('dataset_path', str)]):
     """Download wine quality dataset and perform initial validation."""
     import pandas as pd
@@ -36,7 +38,7 @@ def download_data() -> NamedTuple('Outputs', [('dataset_path', str)]):
     return Outputs(dataset_path)
 
 
-@create_component_from_func
+@component(base_image=BASE_IMAGE)
 def validate_data(dataset_path: str) -> NamedTuple('Outputs', [('validation_status', str), ('validation_report', str)]):
     """Validate data quality using basic checks."""
     import pandas as pd
@@ -95,7 +97,7 @@ def validate_data(dataset_path: str) -> NamedTuple('Outputs', [('validation_stat
     return Outputs(validation_status, json.dumps(validation_report))
 
 
-@create_component_from_func
+@component(base_image=BASE_IMAGE)
 def preprocess_data(dataset_path: str) -> NamedTuple('Outputs', [('features_path', str), ('labels_path', str), ('scaler_path', str)]):
     """Preprocess the wine quality dataset."""
     import pandas as pd
@@ -136,7 +138,7 @@ def preprocess_data(dataset_path: str) -> NamedTuple('Outputs', [('features_path
     return Outputs(features_path, labels_path, scaler_path)
 
 
-@create_component_from_func
+@component(base_image=BASE_IMAGE)
 def train_model(features_path: str, labels_path: str, hyperparameters: str) -> NamedTuple('Outputs', [('model_path', str)]):
     """Train a machine learning model."""
     import numpy as np
@@ -174,7 +176,7 @@ def train_model(features_path: str, labels_path: str, hyperparameters: str) -> N
     return Outputs(model_path)
 
 
-@create_component_from_func
+@component(base_image=BASE_IMAGE)
 def evaluate_model(model_path: str, features_path: str, labels_path: str) -> NamedTuple('Outputs', [('metrics_path', str)]):
     """Evaluate the trained model."""
     import numpy as np
@@ -219,7 +221,7 @@ def evaluate_model(model_path: str, features_path: str, labels_path: str) -> Nam
     return Outputs(metrics_path)
 
 
-@create_component_from_func
+@component(base_image=BASE_IMAGE)
 def deploy_model(model_path: str, scaler_path: str, metrics_path: str) -> NamedTuple('Outputs', [('deployment_path', str)]):
     """Package the model for deployment."""
     import joblib
