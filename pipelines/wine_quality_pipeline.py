@@ -12,7 +12,7 @@ import json
 import datetime
 
 # Define base image for all components
-BASE_IMAGE = 'shashnavad/wine-quality-mlops:latest'  # Updated to use Docker Hub
+BASE_IMAGE = 'pes1ug19cs601/wine-quality-mlops:latest'  # Updated to use correct Docker Hub username
 
 @component(base_image=BASE_IMAGE)
 def download_data(dataset_path: OutputPath('CSV')) -> None:
