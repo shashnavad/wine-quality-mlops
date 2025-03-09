@@ -1,49 +1,7 @@
-import kfp
 from kfp import dsl
-from kfp.dsl import ContainerOp
-import json
-import k8s_client
-
-# Define base image
-BASE_IMAGE = 'pes1ug19cs601/wine-quality-mlops:latest'
-
-def preprocess_op(data_path: str) -> ContainerOp:
-    """Creates a preprocessing component."""
-    return ContainerOp(
-        name='preprocess-data',
-        image=BASE_IMAGE,
-        command=['python', '/app/src/components/preprocess.py'],
-        arguments=[
-            '--data_path', data_path,
-            '--features_path', '/tmp/processed/features.npy',
-            '--labels_path', '/tmp/processed/labels.npy',
-            '--scaler_path', '/tmp/processed/scaler.joblib'
-        ],
-        file_outputs={
-            'features': '/tmp/processed/features.npy',
-            'labels': '/tmp/processed/labels.npy',
-            'scaler': '/tmp/processed/scaler.joblib'
-        }
-    )
-
-def train_op(features_path: str, labels_path: str, hyperparameters: dict) -> ContainerOp:
-    """Creates a training component."""
-    return ContainerOp(
-        name='train-model',
-        image=BASE_IMAGE,
-        command=['python', '/app/src/components/train.py'],
-        arguments=[
-            '--features_path', features_path,
-            '--labels_path', labels_path,
-            '--model_path', '/tmp/models/model.joblib',
-            '--metrics_path', '/tmp/metrics/metrics.json',
-            '--hyperparameters', json.dumps(hyperparameters)
-        ],
-        file_outputs={
-            'model': '/tmp/models/model.joblib',
-            'metrics': '/tmp/metrics/metrics.json'
-        }
-    )
+from kfp import compiler
+from components.preprocess import preprocess
+from components.train import train
 
 @dsl.pipeline(
     name='Wine Quality Pipeline',
@@ -68,27 +26,29 @@ def wine_quality_pipeline(
         'random_state': random_state
     }
     
+    # Create output paths
+    features_path = '/tmp/processed/features.npy'
+    labels_path = '/tmp/processed/labels.npy'
+    scaler_path = '/tmp/processed/scaler.joblib'
+    model_path = '/tmp/models/model.joblib'
+    metrics_path = '/tmp/metrics/metrics.json'
+    
     # Preprocess data
-    preprocess_task = preprocess_op(data_path=data_path)
+    preprocess_task = preprocess(data_path=data_path)
     
     # Train and evaluate model
-    train_task = train_op(
-        features_path=preprocess_task.outputs['features'],
-        labels_path=preprocess_task.outputs['labels'],
+    train_task = train(
+        features_path=features_path,
+        labels_path=labels_path,
         hyperparameters=hyperparameters
-    )
+    ).after(preprocess_task)
     
-    # Add volume mount for MLflow
-    train_task.add_env_variable(
-        k8s_client.V1EnvVar(
-            name='MLFLOW_TRACKING_URI',
-            value='http://mlflow-service:5000'
-        )
-    )
+    # Set MLflow environment variable
+    train_task.set_env_variable('MLFLOW_TRACKING_URI', 'http://mlflow-service:5000')
 
 if __name__ == '__main__':
     # Compile the pipeline
-    kfp.compiler.Compiler().compile(
+    compiler.Compiler().compile(
         pipeline_func=wine_quality_pipeline,
         package_path='wine_quality_pipeline.yaml'
     ) 
