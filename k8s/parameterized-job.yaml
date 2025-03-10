@@ -1,0 +1,101 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wine-quality-pipeline-param
+  namespace: mlops
+spec:
+  template:
+    spec:
+      containers:
+      - name: wine-quality-pipeline
+        image: pes1ug19cs601/wine-quality-mlops:latest
+        env:
+        - name: N_ESTIMATORS
+          value: "150"  # Change this value as needed
+        - name: MAX_DEPTH
+          value: "20"   # Change this value as needed
+        - name: MIN_SAMPLES_SPLIT
+          value: "5"    # Change this value as needed
+        - name: MIN_SAMPLES_LEAF
+          value: "2"    # Change this value as needed
+        - name: RANDOM_STATE
+          value: "42"   # Change this value as needed
+        command:
+        - python
+        - -c
+        - |
+          import pandas as pd
+          import numpy as np
+          from sklearn.model_selection import train_test_split
+          from sklearn.ensemble import RandomForestRegressor
+          from sklearn.preprocessing import StandardScaler
+          import joblib
+          import mlflow
+          import os
+          import json
+          
+          # Set MLflow tracking URI
+          mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')
+          
+          # Get hyperparameters from environment variables
+          n_estimators = int(os.environ.get('N_ESTIMATORS', 100))
+          max_depth_str = os.environ.get('MAX_DEPTH', 'None')
+          max_depth = None if max_depth_str == 'None' else int(max_depth_str)
+          min_samples_split = int(os.environ.get('MIN_SAMPLES_SPLIT', 2))
+          min_samples_leaf = int(os.environ.get('MIN_SAMPLES_LEAF', 1))
+          random_state = int(os.environ.get('RANDOM_STATE', 42))
+          
+          hyperparameters = {
+              'n_estimators': n_estimators,
+              'max_depth': max_depth,
+              'min_samples_split': min_samples_split,
+              'min_samples_leaf': min_samples_leaf,
+              'random_state': random_state
+          }
+          
+          # Parameters
+          data_path = 'https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv'
+          
+          # Load data
+          print("Loading data from", data_path)
+          df = pd.read_csv(data_path, sep=";")
+          
+          # Split features and labels
+          X = df.drop('quality', axis=1)
+          y = df['quality']
+          
+          # Scale features
+          print("Scaling features")
+          scaler = StandardScaler()
+          X_scaled = scaler.fit_transform(X)
+          
+          # Split data
+          print("Splitting data")
+          X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+          
+          # Train model
+          print("Training model with hyperparameters:", hyperparameters)
+          model = RandomForestRegressor(**hyperparameters)
+          model.fit(X_train, y_train)
+          
+          # Evaluate model
+          train_score = model.score(X_train, y_train)
+          test_score = model.score(X_test, y_test)
+          
+          print(f"Training R² score: {train_score:.4f}")
+          print(f"Test R² score: {test_score:.4f}")
+          
+          # Create a unique run name based on hyperparameters
+          run_name = f"wine-quality-n{n_estimators}-d{max_depth}-s{min_samples_split}-l{min_samples_leaf}"
+          
+          # Log to MLflow
+          print(f"Logging to MLflow with run name: {run_name}")
+          with mlflow.start_run(run_name=run_name):
+              mlflow.log_params(hyperparameters)
+              mlflow.log_metric("train_r2", train_score)
+              mlflow.log_metric("test_r2", test_score)
+              mlflow.sklearn.log_model(model, "model")
+              
+          print("Pipeline completed successfully!")
+      restartPolicy: Never
+  backoffLimit: 2 

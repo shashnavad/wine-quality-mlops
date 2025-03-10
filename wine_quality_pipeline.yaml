@@ -16,23 +16,44 @@ components:
         data_path:
           parameterType: STRING
     outputDefinitions:
-      parameters:
-        Output:
-          parameterType: STRUCT
+      artifacts:
+        features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        labels:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        scaler:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
   comp-train:
     executorLabel: exec-train
     inputDefinitions:
+      artifacts:
+        features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        labels:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
       parameters:
-        features_path:
-          parameterType: STRING
         hyperparameters:
           parameterType: STRUCT
-        labels_path:
-          parameterType: STRING
     outputDefinitions:
-      parameters:
-        Output:
-          parameterType: STRUCT
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
 deploymentSpec:
   executors:
     exec-preprocess:
@@ -48,9 +69,8 @@ deploymentSpec:
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.12.1'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
-          \ 'scikit-learn' 'joblib' && \"$0\" \"$@\"\n"
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -62,19 +82,17 @@ deploymentSpec:
 
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef preprocess(data_path: str) -> dict:\n    \"\"\"Preprocess the\
-          \ wine quality data.\"\"\"\n    # Create output directories\n    os.makedirs('/tmp/processed',\
-          \ exist_ok=True)\n\n    # Define output paths\n    features_path = '/tmp/processed/features.npy'\n\
-          \    labels_path = '/tmp/processed/labels.npy'\n    scaler_path = '/tmp/processed/scaler.joblib'\n\
-          \n    # Load data\n    df = pd.read_csv(data_path, sep=\";\")\n\n    # Split\
-          \ features and labels\n    X = df.drop('quality', axis=1)\n    y = df['quality']\n\
-          \n    # Scale features\n    scaler = StandardScaler()\n    X_scaled = scaler.fit_transform(X)\n\
-          \n    # Save processed data\n    np.save(features_path, X_scaled)\n    np.save(labels_path,\
-          \ y.values)\n    joblib.dump(scaler, scaler_path)\n\n    print(f\"Preprocessed\
-          \ features saved to {features_path}\")\n    print(f\"Preprocessed labels\
-          \ saved to {labels_path}\")\n    print(f\"Scaler saved to {scaler_path}\"\
-          )\n\n    return {\n        'features': features_path,\n        'labels':\
-          \ labels_path,\n        'scaler': scaler_path\n    } \n\n"
+          \ *\n\ndef preprocess(\n    data_path: str,\n    features: Output[Dataset],\n\
+          \    labels: Output[Dataset],\n    scaler: Output[Model]\n):\n    \"\"\"\
+          Preprocess the wine quality data.\"\"\"\n    # Load data\n    df = pd.read_csv(data_path,\
+          \ sep=\";\")\n\n    # Split features and labels\n    X = df.drop('quality',\
+          \ axis=1)\n    y = df['quality']\n\n    # Scale features\n    scaler_obj\
+          \ = StandardScaler()\n    X_scaled = scaler_obj.fit_transform(X)\n\n   \
+          \ # Save processed data\n    np.save(features.path, X_scaled)\n    np.save(labels.path,\
+          \ y.values)\n    joblib.dump(scaler_obj, scaler.path)\n\n    print(f\"Preprocessed\
+          \ features saved to {features.path}\")\n    print(f\"Preprocessed labels\
+          \ saved to {labels.path}\")\n    print(f\"Scaler saved to {scaler.path}\"\
+          )\n\n"
         image: pes1ug19cs601/wine-quality-mlops:latest
     exec-train:
       container:
@@ -89,9 +107,8 @@ deploymentSpec:
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.12.1'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'numpy' 'scikit-learn'\
-          \ 'joblib' 'mlflow' && \"$0\" \"$@\"\n"
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -103,31 +120,25 @@ deploymentSpec:
 
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef train(features_path: str, labels_path: str, hyperparameters:\
-          \ dict) -> dict:\n    \"\"\"Train a RandomForestRegressor model.\"\"\"\n\
-          \    # Create output directories\n    os.makedirs('/tmp/models', exist_ok=True)\n\
-          \    os.makedirs('/tmp/metrics', exist_ok=True)\n\n    # Define output paths\n\
-          \    model_path = '/tmp/models/model.joblib'\n    metrics_path = '/tmp/metrics/metrics.json'\n\
-          \n    # Load data\n    X = np.load(features_path)\n    y = np.load(labels_path)\n\
-          \n    # Split data\n    X_train, X_test, y_train, y_test = train_test_split(X,\
-          \ y, test_size=0.2, random_state=42)\n\n    # Train model\n    model = RandomForestRegressor(**hyperparameters)\n\
-          \    model.fit(X_train, y_train)\n\n    # Evaluate model\n    train_score\
-          \ = model.score(X_train, y_train)\n    test_score = model.score(X_test,\
-          \ y_test)\n\n    # Save metrics\n    metrics = {\n        'train_r2': float(train_score),\n\
-          \        'test_r2': float(test_score)\n    }\n    with open(metrics_path,\
-          \ 'w') as f:\n        json.dump(metrics, f, indent=2)\n\n    # Save model\n\
-          \    joblib.dump(model, model_path)\n\n    # Log to MLflow if tracking URI\
-          \ is set\n    if 'MLFLOW_TRACKING_URI' in os.environ:\n        mlflow.set_tracking_uri(os.environ['MLFLOW_TRACKING_URI'])\n\
-          \        with mlflow.start_run():\n            mlflow.log_params(hyperparameters)\n\
-          \            mlflow.log_metric(\"train_r2\", train_score)\n            mlflow.log_metric(\"\
-          test_r2\", test_score)\n            mlflow.sklearn.log_model(model, \"model\"\
-          )\n\n    print(f\"Model saved to {model_path}\")\n    print(f\"Metrics saved\
-          \ to {metrics_path}\")\n    print(f\"Training metrics: {metrics}\")\n\n\
-          \    return {\n        'model': model_path,\n        'metrics': metrics_path\n\
-          \    } \n\n"
-        env:
-        - name: MLFLOW_TRACKING_URI
-          value: http://mlflow-service:5000
+          \ *\n\ndef train(\n    features: Input[Dataset],\n    labels: Input[Dataset],\n\
+          \    hyperparameters: dict,\n    model: Output[Model],\n    metrics: Output[Metrics]\n\
+          ):\n    \"\"\"Train a RandomForestRegressor model.\"\"\"\n    # Load data\n\
+          \    X = np.load(features.path)\n    y = np.load(labels.path)\n\n    # Split\
+          \ data\n    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,\
+          \ random_state=42)\n\n    # Train model\n    model_obj = RandomForestRegressor(**hyperparameters)\n\
+          \    model_obj.fit(X_train, y_train)\n\n    # Evaluate model\n    train_score\
+          \ = model_obj.score(X_train, y_train)\n    test_score = model_obj.score(X_test,\
+          \ y_test)\n\n    # Save metrics\n    metrics_dict = {\n        'train_r2':\
+          \ float(train_score),\n        'test_r2': float(test_score)\n    }\n   \
+          \ with open(metrics.path, 'w') as f:\n        json.dump(metrics_dict, f,\
+          \ indent=2)\n\n    # Save model\n    joblib.dump(model_obj, model.path)\n\
+          \n    # Log to MLflow\n    mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
+          \    with mlflow.start_run():\n        mlflow.log_params(hyperparameters)\n\
+          \        mlflow.log_metric(\"train_r2\", train_score)\n        mlflow.log_metric(\"\
+          test_r2\", test_score)\n        mlflow.sklearn.log_model(model_obj, \"model\"\
+          )\n\n    print(f\"Model saved to {model.path}\")\n    print(f\"Metrics saved\
+          \ to {metrics.path}\")\n    print(f\"Training metrics: {metrics_dict}\"\
+          )\n\n"
         image: pes1ug19cs601/wine-quality-mlops:latest
 pipelineInfo:
   description: End-to-end ML pipeline for wine quality prediction
@@ -154,10 +165,16 @@ root:
         dependentTasks:
         - preprocess
         inputs:
+          artifacts:
+            features:
+              taskOutputArtifact:
+                outputArtifactKey: features
+                producerTask: preprocess
+            labels:
+              taskOutputArtifact:
+                outputArtifactKey: labels
+                producerTask: preprocess
           parameters:
-            features_path:
-              runtimeValue:
-                constant: /tmp/processed/features.npy
             hyperparameters:
               runtimeValue:
                 constant:
@@ -166,9 +183,6 @@ root:
                   min_samples_split: '{{$.inputs.parameters[''pipelinechannel--min_samples_split'']}}'
                   n_estimators: '{{$.inputs.parameters[''pipelinechannel--n_estimators'']}}'
                   random_state: '{{$.inputs.parameters[''pipelinechannel--random_state'']}}'
-            labels_path:
-              runtimeValue:
-                constant: /tmp/processed/labels.npy
             pipelinechannel--max_depth:
               componentInputParameter: max_depth
             pipelinechannel--min_samples_leaf:

@@ -1,34 +1,31 @@
-FROM python:3.12-slim
+# Use Python 3.9 as base
+FROM python:3.9-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Download and install Argo executor
+RUN mkdir -p /var/run/argo \
+    && curl -L -o /var/run/argo/argoexec https://github.com/argoproj/argo-workflows/releases/download/v3.4.11/argoexec-linux-amd64 \
+    && chmod +x /var/run/argo/argoexec
+
+# Create directories for data, models, and metrics
+RUN mkdir -p /tmp/processed /tmp/models /tmp/metrics
+
 # Set working directory
 WORKDIR /app
 
-# Copy requirements file
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Create necessary directories
-RUN mkdir -p /tmp/data /tmp/models /tmp/metrics /tmp/processed /tmp/reports /tmp/deployment
-
-# Copy source code and pipeline definitions
-COPY src/ /app/src/
+# Copy pipeline definitions
 COPY pipelines/ /app/pipelines/
 
-# Make component scripts executable
-RUN chmod +x /app/src/components/*.py
-
-# Set Python path
+# Set environment variables
 ENV PYTHONPATH=/app
 
-# Set default entrypoint to python
-ENTRYPOINT ["python"]
-
-# Default to serving app (can be overridden)
-CMD ["src/serving/app.py"] 
+# Default command
+CMD ["python"] 

@@ -173,3 +173,36 @@ This is an MLOps project that implements an end-to-end machine learning pipeline
 ## License
 
 MIT License 
+
+## Running the Pipeline in Kubernetes
+
+Since setting up Kubeflow Pipelines UI can be challenging in some environments, we've provided a simpler approach to run the pipeline directly in Kubernetes using Jobs.
+
+### Using the Simple Job
+
+To run the pipeline with default hyperparameters:
+
+```bash
+kubectl apply -f k8s/pipeline-job.yaml
+```
+
+### Using the Parameterized Job
+
+To run the pipeline with custom hyperparameters:
+
+1. Edit the environment variables in `k8s/parameterized-job.yaml`
+2. Apply the job:
+
+```bash
+kubectl apply -f k8s/parameterized-job.yaml
+```
+
+### Viewing Results in MLflow
+
+The pipeline logs metrics and models to MLflow. To access the MLflow UI:
+
+```bash
+kubectl port-forward -n mlops svc/mlflow-service 5000:5000
+```
+
+Then open http://localhost:5000 in your browser. 
