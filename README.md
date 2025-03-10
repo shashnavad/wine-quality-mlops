@@ -227,13 +227,13 @@ This will create a bucket named "mlflow" in MinIO that MLflow will use to store 
 
 The pipeline can run on MLflow even with Kubeflow-specific files because:
 
-1. **Independent Execution**: The Python code in your components can run independently of Kubeflow
-2. **MLflow Integration**: Your components include MLflow logging code
-3. **Kubernetes Deployment**: You've deployed MLflow on Kubernetes, which your pipeline connects to
+1. **Independent Execution**: The Python code in the components can run independently of Kubeflow
+2. **MLflow Integration**: The components include MLflow logging code
+3. **Kubernetes Deployment**: I've deployed MLflow on Kubernetes, which my pipeline connects to
 
-The `wine_quality_pipeline.yaml` file is only used when you want to run the pipeline on Kubeflow. When running with MLflow, you're executing a Python script directly that:
+The `wine_quality_pipeline.yaml` file is only used when you want to run the pipeline on Kubeflow. When running with MLflow, I'm executing a Python script directly that:
 
-1. Imports your component functions
+1. Imports the component functions
 2. Calls them in sequence
 3. Passes data between them
 4. Logs results to MLflow
