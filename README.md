@@ -221,3 +221,36 @@ kubectl apply -f k8s/create-minio-bucket.yaml
 ```
 
 This will create a bucket named "mlflow" in MinIO that MLflow will use to store model artifacts. 
+
+
+## How the Kubeflow/MLFlow Setup Works
+
+1. **Dual Infrastructure**:
+   - You have MLflow deployed on Kubernetes (via the `k8s/mlops/mlflow.yaml` file)
+   - You also have Kubeflow configuration (the `wine_quality_pipeline.yaml`)
+
+2. **Execution Flow**:
+   - When you run your pipeline with MLflow, you're likely executing a Python script directly
+   - This script runs your pipeline functions and logs to the MLflow server
+   - The MLflow server is deployed on Kubernetes using your k8s configuration
+
+3. **Component Design**:
+   - Your component files (`preprocess.py` and `train.py`) have Kubeflow decorators
+   - But they also contain MLflow logging code inside the functions
+   - This dual design allows them to work in both environments
+
+## Why It Works
+
+Your pipeline can run on MLflow even with Kubeflow-specific files because:
+
+1. **Independent Execution**: The Python code in your components can run independently of Kubeflow
+2. **MLflow Integration**: Your components include MLflow logging code
+3. **Kubernetes Deployment**: You've deployed MLflow on Kubernetes, which your pipeline connects to
+
+The `wine_quality_pipeline.yaml` file is only used when you want to run the pipeline on Kubeflow. When running with MLflow, you're likely executing a Python script directly that:
+
+1. Imports your component functions
+2. Calls them in sequence
+3. Passes data between them
+4. Logs results to MLflow
+
