@@ -28,7 +28,6 @@ wine-quality-mlops/
 ## Prerequisites
 
 - Kubernetes cluster
-- Kubeflow installed
 - Python 3.8+
 - Docker
 
@@ -44,10 +43,6 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```bash
 pip install -r requirements.txt
 ```
-
-3. Configure Kubeflow:
-- Ensure Kubeflow is installed in your cluster
-- Configure access to your Kubeflow dashboard
 
 ## Pipeline Components
 
@@ -97,7 +92,7 @@ curl -X POST http://[MODEL_ENDPOINT]/v1/models/wine-quality:predict -d @sample_i
 
 
 ### Project Overview
-This is an MLOps project that implements an end-to-end machine learning pipeline for wine quality prediction using Kubeflow/Argo Workflows. The project demonstrates MLOps best practices including pipeline orchestration, containerization, and Kubernetes deployment.
+This is an MLOps project that implements an end-to-end machine learning pipeline for wine quality prediction using MLflow Workflows. The project demonstrates MLOps best practices including pipeline orchestration, containerization, and Kubernetes deployment.
 
 ### Key Components
 
