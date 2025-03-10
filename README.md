@@ -1,6 +1,6 @@
 # Wine Quality MLOps Project
 
-This project demonstrates MLOps best practices using MLflow pipelines for wine quality prediction. It implements a full ML pipeline including data validation, preprocessing, training, evaluation, and model serving.
+This project demonstrates MLOps best practices using Kubeflow pipelines for wine quality prediction. It implements a full ML pipeline including data validation, preprocessing, training, evaluation, and model serving.
 
 ## Project Structure
 
@@ -92,7 +92,7 @@ curl -X POST http://[MODEL_ENDPOINT]/v1/models/wine-quality:predict -d @sample_i
 
 
 ### Project Overview
-This is an MLOps project that implements an end-to-end machine learning pipeline for wine quality prediction using MLflow Workflows. The project demonstrates MLOps best practices including pipeline orchestration, containerization, and Kubernetes deployment.
+This is an MLOps project that implements an end-to-end machine learning pipeline for wine quality prediction using Kubeflow Workflows. The project demonstrates MLOps best practices including pipeline orchestration, containerization, and Kubernetes deployment.
 
 ### Key Components
 
@@ -171,7 +171,7 @@ MIT License
 
 ## Running the Pipeline in Kubernetes
 
-Since setting up Kubeflow Pipelines UI can be challenging in some environments, we've provided a simpler approach to run the pipeline directly in Kubernetes using Jobs.
+Since setting up Kubeflow Pipelines UI can be challenging in some environments, I've provided a simpler approach to run the pipeline directly in Kubernetes using Jobs.
 
 ### Using the Simple Job
 
