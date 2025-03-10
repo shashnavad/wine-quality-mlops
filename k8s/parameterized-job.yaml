@@ -20,6 +20,20 @@ spec:
           value: "2"    # Change this value as needed
         - name: RANDOM_STATE
           value: "42"   # Change this value as needed
+        # Add MinIO credentials from secret
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-minio-credentials
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-minio-credentials
+              key: AWS_SECRET_ACCESS_KEY
+        # Add MLflow artifact configuration
+        - name: MLFLOW_S3_ENDPOINT_URL
+          value: "http://minio-service.mlops.svc.cluster.local:9000"
         command:
         - python
         - -c
@@ -34,8 +48,13 @@ spec:
           import os
           import json
           
-          # Set MLflow tracking URI
+          # Set MLflow tracking URI and configure artifact store
           mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')
+          
+          # Print environment variables for debugging
+          print("AWS_ACCESS_KEY_ID:", os.environ.get('AWS_ACCESS_KEY_ID', 'Not set'))
+          print("AWS_SECRET_ACCESS_KEY:", "***" if os.environ.get('AWS_SECRET_ACCESS_KEY') else 'Not set')
+          print("MLFLOW_S3_ENDPOINT_URL:", os.environ.get('MLFLOW_S3_ENDPOINT_URL', 'Not set'))
           
           # Get hyperparameters from environment variables
           n_estimators = int(os.environ.get('N_ESTIMATORS', 100))
@@ -94,7 +113,27 @@ spec:
               mlflow.log_params(hyperparameters)
               mlflow.log_metric("train_r2", train_score)
               mlflow.log_metric("test_r2", test_score)
+              
+              # Save model to local path first
+              print("Saving model locally")
+              local_model_path = "/tmp/model"
+              mlflow.sklearn.save_model(model, local_model_path)
+              
+              # Log model artifacts
+              print("Logging model to MLflow")
               mlflow.sklearn.log_model(model, "model")
+              
+              # Log feature importance
+              feature_importance = pd.DataFrame({
+                  'feature': X.columns,
+                  'importance': model.feature_importances_
+              }).sort_values('importance', ascending=False)
+              
+              # Save feature importance to local file
+              feature_importance.to_csv("/tmp/feature_importance.csv", index=False)
+              
+              # Log feature importance file
+              mlflow.log_artifact("/tmp/feature_importance.csv")
               
           print("Pipeline completed successfully!")
       restartPolicy: Never

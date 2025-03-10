@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-minio-bucket
+  namespace: mlops
+spec:
+  template:
+    spec:
+      containers:
+      - name: create-bucket
+        image: minio/mc
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-minio-credentials
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-minio-credentials
+              key: AWS_SECRET_ACCESS_KEY
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Add MinIO server
+          mc config host add minio http://minio-service:9000 $AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY
+          
+          # Create mlflow bucket if it doesn't exist
+          if ! mc ls minio | grep -q mlflow; then
+            echo "Creating mlflow bucket..."
+            mc mb minio/mlflow
+            echo "Setting bucket policy to public..."
+            mc policy set public minio/mlflow
+          else
+            echo "Bucket mlflow already exists"
+          fi
+          
+          # List buckets to verify
+          mc ls minio
+      restartPolicy: Never
+  backoffLimit: 2 

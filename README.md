@@ -206,3 +206,23 @@ kubectl port-forward -n mlops svc/mlflow-service 5000:5000
 ```
 
 Then open http://localhost:5000 in your browser. 
+
+## MLflow and MinIO Integration
+
+To ensure MLflow can store artifacts properly, we need to set up a MinIO bucket:
+
+1. Create a Kubernetes secret for MinIO credentials:
+
+```bash
+kubectl create secret generic mlflow-minio-credentials -n mlops \
+  --from-literal=AWS_ACCESS_KEY_ID=minioadmin \
+  --from-literal=AWS_SECRET_ACCESS_KEY=minioadmin
+```
+
+2. Create the MinIO bucket for MLflow:
+
+```bash
+kubectl apply -f k8s/create-minio-bucket.yaml
+```
+
+This will create a bucket named "mlflow" in MinIO that MLflow will use to store model artifacts. 
