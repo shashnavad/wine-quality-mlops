@@ -36,6 +36,9 @@ def parse_arguments():
                         help="Experiment name in Kubeflow")
     parser.add_argument("--run-name", type=str, default=None,
                         help="Run name in Kubeflow (default: auto-generated)")
+    parser.add_argument("--data-path", type=str, 
+                   default="https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv",
+                   help="Path to the wine quality data file")
     
     return parser.parse_args()
 
@@ -65,6 +68,7 @@ def main():
     
     # Set up the pipeline parameters
     params = {
+        "data_path": args.data_path,
         "n_estimators": args.n_estimators,
         "max_depth": args.max_depth,
         "min_samples_split": args.min_samples_split,

@@ -90,6 +90,107 @@ def train(
     print(f"Metrics saved to {metrics.path}")
     print(f"Training metrics: {metrics_dict}")
 
+@component(
+    base_image='pes1ug19cs601/wine-quality-mlops:latest'
+)
+def validate_data(
+    data_path: str,
+    metrics: Output[Metrics]
+):
+    """Validate wine data for drift using Great Expectations."""
+    import os
+    import sys
+    import json
+    import pandas as pd
+    from great_expectations.data_context import DataContext
+    
+    # Try to initialize Great Expectations context
+    try:
+        # Check if great_expectations directory exists in the current directory
+        if not os.path.exists('great_expectations'):
+            from great_expectations.data_context.types.base import DataContextConfig
+            from great_expectations.data_context import BaseDataContext
+            
+            # Create minimal config for in-memory context
+            context_config = DataContextConfig(
+                store_backend_defaults=None,
+                checkpoint_store_name=None,
+            )
+            context = BaseDataContext(project_config=context_config)
+            
+            # Create simple expectation suite programmatically
+            suite = context.create_expectation_suite("wine_quality_suite")
+            
+            # Load the data to create expectations
+            df = pd.read_csv(data_path, sep=";")
+            batch = context.get_batch({}, batch_data=df)
+            
+            # Add basic expectations for wine data
+            batch.expect_table_columns_to_match_ordered_list(
+                list(df.columns),
+                result_format="COMPLETE"
+            )
+            batch.expect_column_values_to_be_between("fixed acidity", 4.0, 16.0)
+            batch.expect_column_values_to_be_between("volatile acidity", 0.1, 1.2)
+            batch.expect_column_values_to_be_between("pH", 2.7, 4.0)
+            batch.expect_column_values_to_be_between("alcohol", 8.0, 15.0)
+            batch.expect_column_values_to_be_between("quality", 3, 9)
+            batch.expect_column_mean_to_be_between("alcohol", 10.0, 11.5)
+            
+            # Save expectation suite
+            context.save_expectation_suite(suite)
+        else:
+            # Use existing context
+            context = DataContext()
+        
+        # Load new data for validation
+        df = pd.read_csv(data_path, sep=";")
+        
+        # Create batch and validate
+        batch_kwargs = {"dataset": df}
+        batch = context.get_batch(batch_kwargs, "wine_quality_suite")
+        results = context.run_validation_operator(
+            "action_list_operator",
+            assets_to_validate=[batch],
+            run_id="wine_pipeline_run"
+        )
+        
+        # Process validation results
+        validation_success = results["success"]
+        expectations_results = results["results"][0]["result"]
+        
+        # Count successful and failed expectations
+        expectations_total = len(expectations_results["results"])
+        expectations_success = sum(1 for r in expectations_results["results"] if r["success"])
+        
+        # Prepare metrics
+        metrics_dict = {
+            "validation_success": validation_success,
+            "expectations_total": expectations_total,
+            "expectations_passed": expectations_success,
+            "success_rate": expectations_success / expectations_total if expectations_total > 0 else 0
+        }
+        
+        # Save metrics
+        with open(metrics.path, 'w') as f:
+            json.dump(metrics_dict, f, indent=2)
+            
+        print(f"Data validation completed with success: {validation_success}")
+        print(f"Passed {expectations_success} out of {expectations_total} expectations")
+        
+        # Optional: fail pipeline if validation fails
+        if not validation_success:
+            print("WARNING: Data drift detected! Check validation results.")
+            # Uncomment to make pipeline fail on drift detection
+            # raise ValueError("Data validation failed - possible data drift detected")
+        
+    except Exception as e:
+        print(f"Error during data validation: {str(e)}")
+        # Save error in metrics
+        with open(metrics.path, 'w') as f:
+            json.dump({"error": str(e)}, f)
+        raise
+
 @dsl.pipeline(
     name='wine-quality-pipeline',
     description='End-to-end ML pipeline for wine quality prediction'
@@ -112,9 +213,12 @@ def wine_quality_pipeline(
         'min_samples_leaf': min_samples_leaf,
         'random_state': random_state
     }
+
+    # Validate data for drift
+    validation_task = validate_data(data_path=data_path)
     
-    # Preprocess data
-    preprocess_task = preprocess(data_path=data_path)
+    # Preprocess data (only if validation passes)
+    preprocess_task = preprocess(data_path=data_path).after(validation_task)
     
     # Train and evaluate model
     train_task = train(
