@@ -1,9 +1,10 @@
 # Use Python 3.9 as base
 FROM python:3.9-slim
 
-# Install system dependencies
+# Install system dependencies including git
 RUN apt-get update && apt-get install -y \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python dependencies
@@ -26,6 +27,7 @@ COPY pipelines/ /app/pipelines/
 
 # Set environment variables
 ENV PYTHONPATH=/app
+ENV GE_UNCOMMITTED_DIRECTORIES=True
 
 # Default command
-CMD ["python"] 
+CMD ["python"]

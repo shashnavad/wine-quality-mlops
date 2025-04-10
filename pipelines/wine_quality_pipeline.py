@@ -103,6 +103,9 @@ def validate_data(
     import json
     import pandas as pd
     from great_expectations.data_context import DataContext
+    # Disable Git usage in Great Expectations
+    os.environ["GE_USAGE_STATISTICS_ENABLED"] = "False"
+
     
     # Try to initialize Great Expectations context
     try:
@@ -146,14 +149,16 @@ def validate_data(
         # Load new data for validation
         df = pd.read_csv(data_path, sep=";")
         
-        # Create batch and validate
-        batch_kwargs = {"dataset": df}
-        batch = context.get_batch(batch_kwargs, "wine_quality_suite")
-        results = context.run_validation_operator(
-            "action_list_operator",
-            assets_to_validate=[batch],
-            run_id="wine_pipeline_run"
+       # Create batch and validate using V3 API
+        data_source = context.sources.add_pandas_source("wine_source")
+        data_asset = data_source.add_dataframe_asset("wine_data")
+        batch_request = data_asset.build_batch_request(dataframe=df)
+        validator = context.get_validator(
+            batch_request=batch_request,
+            expectation_suite_name="wine_quality_suite"
         )
+        results = validator.validate()
+
         
         # Process validation results
         validation_success = results["success"]
