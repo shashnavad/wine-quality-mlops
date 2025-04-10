@@ -47,7 +47,7 @@ pip install -r requirements.txt
 ## Pipeline Components
 
 1. Data Validation
-   - Data quality checks using Great Expectations
+   - Data quality checks
    - Schema validation
    - Data drift detection
 
