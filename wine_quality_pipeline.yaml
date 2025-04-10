@@ -54,6 +54,18 @@ components:
           artifactType:
             schemaTitle: system.Model
             schemaVersion: 0.0.1
+  comp-validate-data:
+    executorLabel: exec-validate-data
+    inputDefinitions:
+      parameters:
+        data_path:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
 deploymentSpec:
   executors:
     exec-preprocess:
@@ -140,6 +152,88 @@ deploymentSpec:
           \ to {metrics.path}\")\n    print(f\"Training metrics: {metrics_dict}\"\
           )\n\n"
         image: pes1ug19cs601/wine-quality-mlops:latest
+    exec-validate-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - validate_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.12.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef validate_data(\n    data_path: str,\n    metrics: Output[Metrics]\n\
+          ):\n    \"\"\"Validate wine data for drift using Great Expectations.\"\"\
+          \"\n    import os\n    import sys\n    import json\n    import pandas as\
+          \ pd\n    from great_expectations.data_context import DataContext\n\n  \
+          \  # Try to initialize Great Expectations context\n    try:\n        # Check\
+          \ if great_expectations directory exists in the current directory\n    \
+          \    if not os.path.exists('great_expectations'):\n            from great_expectations.data_context.types.base\
+          \ import DataContextConfig\n            from great_expectations.data_context\
+          \ import BaseDataContext\n\n            # Create minimal config for in-memory\
+          \ context\n            context_config = DataContextConfig(\n           \
+          \     store_backend_defaults=None,\n                checkpoint_store_name=None,\n\
+          \            )\n            context = BaseDataContext(project_config=context_config)\n\
+          \n            # Create simple expectation suite programmatically\n     \
+          \       suite = context.create_expectation_suite(\"wine_quality_suite\"\
+          )\n\n            # Load the data to create expectations\n            df\
+          \ = pd.read_csv(data_path, sep=\";\")\n            batch = context.get_batch({},\
+          \ batch_data=df)\n\n            # Add basic expectations for wine data\n\
+          \            batch.expect_table_columns_to_match_ordered_list(\n       \
+          \         list(df.columns),\n                result_format=\"COMPLETE\"\n\
+          \            )\n            batch.expect_column_values_to_be_between(\"\
+          fixed acidity\", 4.0, 16.0)\n            batch.expect_column_values_to_be_between(\"\
+          volatile acidity\", 0.1, 1.2)\n            batch.expect_column_values_to_be_between(\"\
+          pH\", 2.7, 4.0)\n            batch.expect_column_values_to_be_between(\"\
+          alcohol\", 8.0, 15.0)\n            batch.expect_column_values_to_be_between(\"\
+          quality\", 3, 9)\n            batch.expect_column_mean_to_be_between(\"\
+          alcohol\", 10.0, 11.5)\n\n            # Save expectation suite\n       \
+          \     context.save_expectation_suite(suite)\n        else:\n           \
+          \ # Use existing context\n            context = DataContext()\n\n      \
+          \  # Load new data for validation\n        df = pd.read_csv(data_path, sep=\"\
+          ;\")\n\n        # Create batch and validate\n        batch_kwargs = {\"\
+          dataset\": df}\n        batch = context.get_batch(batch_kwargs, \"wine_quality_suite\"\
+          )\n        results = context.run_validation_operator(\n            \"action_list_operator\"\
+          ,\n            assets_to_validate=[batch],\n            run_id=\"wine_pipeline_run\"\
+          \n        )\n\n        # Process validation results\n        validation_success\
+          \ = results[\"success\"]\n        expectations_results = results[\"results\"\
+          ][0][\"result\"]\n\n        # Count successful and failed expectations\n\
+          \        expectations_total = len(expectations_results[\"results\"])\n \
+          \       expectations_success = sum(1 for r in expectations_results[\"results\"\
+          ] if r[\"success\"])\n\n        # Prepare metrics\n        metrics_dict\
+          \ = {\n            \"validation_success\": validation_success,\n       \
+          \     \"expectations_total\": expectations_total,\n            \"expectations_passed\"\
+          : expectations_success,\n            \"success_rate\": expectations_success\
+          \ / expectations_total if expectations_total > 0 else 0\n        }\n\n \
+          \       # Save metrics\n        with open(metrics.path, 'w') as f:\n   \
+          \         json.dump(metrics_dict, f, indent=2)\n\n        print(f\"Data\
+          \ validation completed with success: {validation_success}\")\n        print(f\"\
+          Passed {expectations_success} out of {expectations_total} expectations\"\
+          )\n\n        # Optional: fail pipeline if validation fails\n        if not\
+          \ validation_success:\n            print(\"WARNING: Data drift detected!\
+          \ Check validation results.\")\n            # Uncomment to make pipeline\
+          \ fail on drift detection\n            # raise ValueError(\"Data validation\
+          \ failed - possible data drift detected\")\n\n    except Exception as e:\n\
+          \        print(f\"Error during data validation: {str(e)}\")\n        # Save\
+          \ error in metrics\n        with open(metrics.path, 'w') as f:\n       \
+          \     json.dump({\"error\": str(e)}, f)\n        raise\n\n"
+        image: pes1ug19cs601/wine-quality-mlops:latest
 pipelineInfo:
   description: End-to-end ML pipeline for wine quality prediction
   name: wine-quality-pipeline
@@ -151,6 +245,8 @@ root:
           enableCache: true
         componentRef:
           name: comp-preprocess
+        dependentTasks:
+        - validate-data
         inputs:
           parameters:
             data_path:
@@ -195,6 +291,17 @@ root:
               componentInputParameter: random_state
         taskInfo:
           name: train
+      validate-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-validate-data
+        inputs:
+          parameters:
+            data_path:
+              componentInputParameter: data_path
+        taskInfo:
+          name: validate-data
   inputDefinitions:
     parameters:
       data_path:
