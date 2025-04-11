@@ -50,6 +50,5 @@ Thumbs.db
 # Test workflow files
 argo_workflow.yaml
 hello_pipeline.yaml
-pipelines/test_pipeline.py
 pipelines/hello-workflow.yaml
 pipelines/convert_to_argo.py
