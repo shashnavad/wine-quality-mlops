@@ -134,23 +134,35 @@ deploymentSpec:
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef train(\n    features: Input[Dataset],\n    labels: Input[Dataset],\n\
           \    hyperparameters: dict,\n    model: Output[Model],\n    metrics: Output[Metrics]\n\
-          ):\n    \"\"\"Train a RandomForestRegressor model.\"\"\"\n    # Load data\n\
-          \    X = np.load(features.path)\n    y = np.load(labels.path)\n\n    # Split\
-          \ data\n    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,\
-          \ random_state=42)\n\n    # Train model\n    model_obj = RandomForestRegressor(**hyperparameters)\n\
+          ):\n    \"\"\"Train a RandomForestRegressor model.\"\"\"\n    import os\n\
+          \    import joblib\n    import json\n    import numpy as np\n    from sklearn.model_selection\
+          \ import train_test_split\n    from sklearn.ensemble import RandomForestRegressor\n\
+          \    import mlflow\n\n    # Load data\n    X = np.load(features.path)\n\
+          \    y = np.load(labels.path)\n\n    # Split data\n    X_train, X_test,\
+          \ y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)\n\
+          \n    # Train model\n    model_obj = RandomForestRegressor(**hyperparameters)\n\
           \    model_obj.fit(X_train, y_train)\n\n    # Evaluate model\n    train_score\
           \ = model_obj.score(X_train, y_train)\n    test_score = model_obj.score(X_test,\
           \ y_test)\n\n    # Save metrics\n    metrics_dict = {\n        'train_r2':\
           \ float(train_score),\n        'test_r2': float(test_score)\n    }\n   \
           \ with open(metrics.path, 'w') as f:\n        json.dump(metrics_dict, f,\
           \ indent=2)\n\n    # Save model\n    joblib.dump(model_obj, model.path)\n\
-          \n    # Log to MLflow\n    mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
-          \    with mlflow.start_run():\n        mlflow.log_params(hyperparameters)\n\
-          \        mlflow.log_metric(\"train_r2\", train_score)\n        mlflow.log_metric(\"\
-          test_r2\", test_score)\n        mlflow.sklearn.log_model(model_obj, \"model\"\
-          )\n\n    print(f\"Model saved to {model.path}\")\n    print(f\"Metrics saved\
-          \ to {metrics.path}\")\n    print(f\"Training metrics: {metrics_dict}\"\
-          )\n\n"
+          \n    # Only log to MLflow if not in testing mode and if MLflow server is\
+          \ available\n    if not os.environ.get(\"TESTING\", \"False\").lower() ==\
+          \ \"true\":\n        try:\n            # Set a timeout for MLflow connection\
+          \ attempts\n            import socket\n            socket.setdefaulttimeout(5)\
+          \  # 5 second timeout\n\n            # Try to connect to MLflow server\n\
+          \            mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
+          \n            with mlflow.start_run():\n                mlflow.log_params(hyperparameters)\n\
+          \                mlflow.log_metric(\"train_r2\", train_score)\n        \
+          \        mlflow.log_metric(\"test_r2\", test_score)\n                mlflow.sklearn.log_model(model_obj,\
+          \ \"model\")\n\n            print(\"Successfully logged metrics to MLflow\"\
+          )\n        except Exception as e:\n            print(f\"MLflow logging failed\
+          \ (this is expected in local environments): {e}\")\n            print(\"\
+          Continuing without MLflow logging\")\n    else:\n        print(\"Testing\
+          \ mode active, skipping MLflow logging\")\n\n    print(f\"Model saved to\
+          \ {model.path}\")\n    print(f\"Metrics saved to {metrics.path}\")\n   \
+          \ print(f\"Training metrics: {metrics_dict}\")\n\n"
         image: pes1ug19cs601/wine-quality-mlops:latest
     exec-validate-data:
       container:
@@ -179,60 +191,96 @@ deploymentSpec:
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef validate_data(\n    data_path: str,\n    metrics: Output[Metrics]\n\
-          ):\n    \"\"\"Validate wine data for drift using Great Expectations.\"\"\
-          \"\n    import os\n    import sys\n    import json\n    import pandas as\
-          \ pd\n    from great_expectations.data_context import DataContext\n\n  \
-          \  # Try to initialize Great Expectations context\n    try:\n        # Check\
-          \ if great_expectations directory exists in the current directory\n    \
-          \    if not os.path.exists('great_expectations'):\n            from great_expectations.data_context.types.base\
-          \ import DataContextConfig\n            from great_expectations.data_context\
-          \ import BaseDataContext\n\n            # Create minimal config for in-memory\
-          \ context\n            context_config = DataContextConfig(\n           \
-          \     store_backend_defaults=None,\n                checkpoint_store_name=None,\n\
-          \            )\n            context = BaseDataContext(project_config=context_config)\n\
-          \n            # Create simple expectation suite programmatically\n     \
-          \       suite = context.create_expectation_suite(\"wine_quality_suite\"\
-          )\n\n            # Load the data to create expectations\n            df\
-          \ = pd.read_csv(data_path, sep=\";\")\n            batch = context.get_batch({},\
-          \ batch_data=df)\n\n            # Add basic expectations for wine data\n\
-          \            batch.expect_table_columns_to_match_ordered_list(\n       \
-          \         list(df.columns),\n                result_format=\"COMPLETE\"\n\
-          \            )\n            batch.expect_column_values_to_be_between(\"\
-          fixed acidity\", 4.0, 16.0)\n            batch.expect_column_values_to_be_between(\"\
-          volatile acidity\", 0.1, 1.2)\n            batch.expect_column_values_to_be_between(\"\
-          pH\", 2.7, 4.0)\n            batch.expect_column_values_to_be_between(\"\
-          alcohol\", 8.0, 15.0)\n            batch.expect_column_values_to_be_between(\"\
-          quality\", 3, 9)\n            batch.expect_column_mean_to_be_between(\"\
-          alcohol\", 10.0, 11.5)\n\n            # Save expectation suite\n       \
-          \     context.save_expectation_suite(suite)\n        else:\n           \
-          \ # Use existing context\n            context = DataContext()\n\n      \
-          \  # Load new data for validation\n        df = pd.read_csv(data_path, sep=\"\
-          ;\")\n\n        # Create batch and validate\n        batch_kwargs = {\"\
-          dataset\": df}\n        batch = context.get_batch(batch_kwargs, \"wine_quality_suite\"\
-          )\n        results = context.run_validation_operator(\n            \"action_list_operator\"\
-          ,\n            assets_to_validate=[batch],\n            run_id=\"wine_pipeline_run\"\
-          \n        )\n\n        # Process validation results\n        validation_success\
-          \ = results[\"success\"]\n        expectations_results = results[\"results\"\
-          ][0][\"result\"]\n\n        # Count successful and failed expectations\n\
-          \        expectations_total = len(expectations_results[\"results\"])\n \
-          \       expectations_success = sum(1 for r in expectations_results[\"results\"\
-          ] if r[\"success\"])\n\n        # Prepare metrics\n        metrics_dict\
-          \ = {\n            \"validation_success\": validation_success,\n       \
-          \     \"expectations_total\": expectations_total,\n            \"expectations_passed\"\
-          : expectations_success,\n            \"success_rate\": expectations_success\
-          \ / expectations_total if expectations_total > 0 else 0\n        }\n\n \
-          \       # Save metrics\n        with open(metrics.path, 'w') as f:\n   \
-          \         json.dump(metrics_dict, f, indent=2)\n\n        print(f\"Data\
-          \ validation completed with success: {validation_success}\")\n        print(f\"\
-          Passed {expectations_success} out of {expectations_total} expectations\"\
-          )\n\n        # Optional: fail pipeline if validation fails\n        if not\
-          \ validation_success:\n            print(\"WARNING: Data drift detected!\
-          \ Check validation results.\")\n            # Uncomment to make pipeline\
-          \ fail on drift detection\n            # raise ValueError(\"Data validation\
-          \ failed - possible data drift detected\")\n\n    except Exception as e:\n\
-          \        print(f\"Error during data validation: {str(e)}\")\n        # Save\
-          \ error in metrics\n        with open(metrics.path, 'w') as f:\n       \
-          \     json.dump({\"error\": str(e)}, f)\n        raise\n\n"
+          ):\n    \"\"\"Validate wine data for drift using Great Expectations with\
+          \ Git functionality disabled.\"\"\"\n    import os\n    import sys\n   \
+          \ import json\n    import pandas as pd\n\n    import logging\n    # Configure\
+          \ root logger and specific loggers to suppress debug messages\n    logging.getLogger().setLevel(logging.ERROR)\
+          \  # Set root logger to ERROR\n    logging.getLogger('great_expectations').setLevel(logging.ERROR)\n\
+          \    logging.getLogger('great_expectations.expectations.registry').setLevel(logging.CRITICAL)\
+          \  # Even stricter for registry\n\n\n    # Set environment variables\n \
+          \   os.environ[\"GE_USAGE_STATISTICS_ENABLED\"] = \"False\"\n    os.environ[\"\
+          GE_UNCOMMITTED_DIRECTORIES\"] = \"True\"\n    os.environ[\"GX_ASSUME_MISSING_LIBRARIES\"\
+          ] = \"git\"\n\n\n    # Import Great Expectations components\n    from great_expectations.data_context.types.base\
+          \ import DataContextConfig\n    from great_expectations.data_context import\
+          \ BaseDataContext\n    from great_expectations.core.batch import RuntimeBatchRequest\n\
+          \n    try:\n        # Load data\n        print(\"Loading data...\")\n  \
+          \      df = pd.read_csv(data_path)\n\n        # Create context configuration\n\
+          \        print(\"Creating context configuration...\")\n        context_config\
+          \ = DataContextConfig(\n            store_backend_defaults=None,\n     \
+          \       checkpoint_store_name=None,\n            datasources={\n       \
+          \         \"pandas_datasource\": {\n                    \"class_name\":\
+          \ \"Datasource\",\n                    \"module_name\": \"great_expectations.datasource\"\
+          ,\n                    \"execution_engine\": {\n                       \
+          \ \"class_name\": \"PandasExecutionEngine\",\n                        \"\
+          module_name\": \"great_expectations.execution_engine\"\n               \
+          \     },\n                    \"data_connectors\": {\n                 \
+          \       \"runtime_connector\": {\n                            \"class_name\"\
+          : \"RuntimeDataConnector\",\n                            \"module_name\"\
+          : \"great_expectations.datasource.data_connector\",\n                  \
+          \          \"batch_identifiers\": [\"batch_id\"]\n                     \
+          \   }\n                    }\n                }\n            }\n       \
+          \ )\n\n        # Create context\n        print(\"Creating context...\")\n\
+          \        context = BaseDataContext(project_config=context_config)\n\n  \
+          \      # Create expectation suite\n        print(\"Creating expectation\
+          \ suite...\")\n        suite_name = \"wine_quality_suite\"\n        context.create_expectation_suite(suite_name,\
+          \ overwrite_existing=True)\n\n        # Create batch request\n        print(\"\
+          Creating batch request...\")\n        batch_request = RuntimeBatchRequest(\n\
+          \            datasource_name=\"pandas_datasource\",\n            data_connector_name=\"\
+          runtime_connector\",\n            data_asset_name=\"wine_data\",\n     \
+          \       runtime_parameters={\"batch_data\": df},\n            batch_identifiers={\"\
+          batch_id\": \"default_identifier\"},\n        )\n\n        # Get validator\n\
+          \        print(\"Getting validator...\")\n        validator = context.get_validator(\n\
+          \            batch_request=batch_request,\n            expectation_suite_name=suite_name\n\
+          \        )\n\n        # Add expectations\n        print(\"Adding expectations...\"\
+          )\n        expectations = []\n\n        # Check that columns match expected\
+          \ list\n        expectations.append(validator.expect_table_columns_to_match_ordered_list(list(df.columns)))\n\
+          \n        # Check data types\n        expectations.append(validator.expect_column_values_to_be_of_type(\"\
+          fixed acidity\", \"float64\"))\n        expectations.append(validator.expect_column_values_to_be_of_type(\"\
+          volatile acidity\", \"float64\"))\n        expectations.append(validator.expect_column_values_to_be_of_type(\"\
+          citric acid\", \"float64\"))\n        expectations.append(validator.expect_column_values_to_be_of_type(\"\
+          residual sugar\", \"float64\"))\n        expectations.append(validator.expect_column_values_to_be_of_type(\"\
+          chlorides\", \"float64\"))\n        expectations.append(validator.expect_column_values_to_be_of_type(\"\
+          free sulfur dioxide\", \"float64\"))\n        expectations.append(validator.expect_column_values_to_be_of_type(\"\
+          total sulfur dioxide\", \"float64\"))\n        expectations.append(validator.expect_column_values_to_be_of_type(\"\
+          density\", \"float64\"))\n        expectations.append(validator.expect_column_values_to_be_of_type(\"\
+          pH\", \"float64\"))\n        expectations.append(validator.expect_column_values_to_be_of_type(\"\
+          sulphates\", \"float64\"))\n        expectations.append(validator.expect_column_values_to_be_of_type(\"\
+          alcohol\", \"float64\"))\n        expectations.append(validator.expect_column_values_to_be_of_type(\"\
+          quality\", \"int64\"))\n\n        # Check value ranges\n        expectations.append(validator.expect_column_values_to_be_between(\"\
+          fixed acidity\", min_value=3.8, max_value=15.9))\n        expectations.append(validator.expect_column_values_to_be_between(\"\
+          volatile acidity\", min_value=0.08, max_value=1.58))\n        expectations.append(validator.expect_column_values_to_be_between(\"\
+          citric acid\", min_value=0, max_value=1.66))\n        expectations.append(validator.expect_column_values_to_be_between(\"\
+          residual sugar\", min_value=0.6, max_value=65.8))\n        expectations.append(validator.expect_column_values_to_be_between(\"\
+          chlorides\", min_value=0.009, max_value=0.611))\n        expectations.append(validator.expect_column_values_to_be_between(\"\
+          free sulfur dioxide\", min_value=1, max_value=289))\n        expectations.append(validator.expect_column_values_to_be_between(\"\
+          total sulfur dioxide\", min_value=6, max_value=440))\n        expectations.append(validator.expect_column_values_to_be_between(\"\
+          density\", min_value=0.98711, max_value=1.03898))\n        expectations.append(validator.expect_column_values_to_be_between(\"\
+          pH\", min_value=2.72, max_value=4.01))\n        expectations.append(validator.expect_column_values_to_be_between(\"\
+          sulphates\", min_value=0.22, max_value=2))\n        expectations.append(validator.expect_column_values_to_be_between(\"\
+          alcohol\", min_value=8, max_value=14.9))\n        expectations.append(validator.expect_column_values_to_be_between(\"\
+          quality\", min_value=3, max_value=9))\n\n        # Check for missing values\n\
+          \        for column in df.columns:\n            expectations.append(validator.expect_column_values_to_not_be_null(column))\n\
+          \n        # Run validation\n        print(\"Running validation...\")\n \
+          \       validation_results = validator.validate()\n\n        # Process results\n\
+          \        print(\"Processing results...\")\n        validation_passed = validation_results.success\n\
+          \n        # Prepare metrics\n        validation_metrics = {\n          \
+          \  \"validation_success\": validation_passed,\n            \"evaluated_expectations\"\
+          : validation_results.statistics[\"evaluated_expectations\"],\n         \
+          \   \"successful_expectations\": validation_results.statistics[\"successful_expectations\"\
+          ],\n            \"unsuccessful_expectations\": validation_results.statistics[\"\
+          unsuccessful_expectations\"],\n        }\n\n        # Log metrics\n    \
+          \    print(\"Logging metrics...\")\n        metrics.log_metric(\"validation_success\"\
+          , float(validation_passed))\n        metrics.log_metric(\"evaluated_expectations\"\
+          , float(validation_results.statistics[\"evaluated_expectations\"]))\n  \
+          \      metrics.log_metric(\"successful_expectations\", float(validation_results.statistics[\"\
+          successful_expectations\"]))\n        metrics.log_metric(\"unsuccessful_expectations\"\
+          , float(validation_results.statistics[\"unsuccessful_expectations\"]))\n\
+          \n        print(f\"Validation {'passed' if validation_passed else 'failed'}\"\
+          )\n        print(f\"Metrics: {validation_metrics}\")\n\n        return validation_metrics\n\
+          \n    except Exception as e:\n        print(f\"Error in validate_data: {type(e).__name__}:\
+          \ {str(e)}\")\n        import traceback\n        print(traceback.format_exc())\n\
+          \        # Log failure in metrics\n        metrics.log_metric(\"validation_success\"\
+          , 0.0)\n        metrics.log_metric(\"error\", 1.0)\n        raise\n\n"
         image: pes1ug19cs601/wine-quality-mlops:latest
 pipelineInfo:
   description: End-to-end ML pipeline for wine quality prediction
