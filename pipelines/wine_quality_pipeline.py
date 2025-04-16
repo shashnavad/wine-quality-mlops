@@ -140,7 +140,8 @@ def train(
 )
 def validate_data(
     data_path: str,
-    metrics: Output[Metrics]
+    metrics: Output[Metrics],
+    validation_success: Output[bool]
 ):
     """Validate wine data for drift using Great Expectations with Git functionality disabled."""
     import os
@@ -286,6 +287,9 @@ def validate_data(
         print(f"Validation {'passed' if validation_passed else 'failed'}")
         print(f"Metrics: {validation_metrics}")
         
+        validation_success = validation_passed
+        with open(validation_success.path, 'w') as f:
+            f.write(str(validation_passed))
         return validation_metrics
         
     except Exception as e:
@@ -295,6 +299,8 @@ def validate_data(
         # Log failure in metrics
         metrics.log_metric("validation_success", 0.0)
         metrics.log_metric("error", 1.0)
+        with open(validation_success.path, 'w') as f:
+            f.write("False")
         raise
 
 @dsl.pipeline(
@@ -323,15 +329,19 @@ def wine_quality_pipeline(
     # Validate data for drift
     validation_task = validate_data(data_path=data_path)
     
-    # Preprocess data (only if validation passes)
-    preprocess_task = preprocess(data_path=data_path).after(validation_task)
-    
-    # Train and evaluate model
-    train_task = train(
-        features=preprocess_task.outputs['features'],
-        labels=preprocess_task.outputs['labels'],
-        hyperparameters=hyperparameters
-    )
+    with dsl.Condition(
+        validation_task.outputs["validation_success"] == True
+    ):
+
+        # Preprocess data (only if validation passes)
+        preprocess_task = preprocess(data_path=data_path).after(validation_task)
+        
+        # Train and evaluate model
+        train_task = train(
+            features=preprocess_task.outputs['features'],
+            labels=preprocess_task.outputs['labels'],
+            hyperparameters=hyperparameters
+        )
 
 if __name__ == '__main__':
     # Compile the pipeline

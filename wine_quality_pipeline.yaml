@@ -9,6 +9,74 @@
 #    n_estimators: int [Default: 100.0]
 #    random_state: int [Default: 42.0]
 components:
+  comp-condition-1:
+    dag:
+      tasks:
+        preprocess:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-preprocess
+          inputs:
+            parameters:
+              data_path:
+                componentInputParameter: pipelinechannel--data_path
+          taskInfo:
+            name: preprocess
+        train:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-train
+          dependentTasks:
+          - preprocess
+          inputs:
+            artifacts:
+              features:
+                taskOutputArtifact:
+                  outputArtifactKey: features
+                  producerTask: preprocess
+              labels:
+                taskOutputArtifact:
+                  outputArtifactKey: labels
+                  producerTask: preprocess
+            parameters:
+              hyperparameters:
+                runtimeValue:
+                  constant:
+                    max_depth: '{{$.inputs.parameters[''pipelinechannel--max_depth'']}}'
+                    min_samples_leaf: '{{$.inputs.parameters[''pipelinechannel--min_samples_leaf'']}}'
+                    min_samples_split: '{{$.inputs.parameters[''pipelinechannel--min_samples_split'']}}'
+                    n_estimators: '{{$.inputs.parameters[''pipelinechannel--n_estimators'']}}'
+                    random_state: '{{$.inputs.parameters[''pipelinechannel--random_state'']}}'
+              pipelinechannel--max_depth:
+                componentInputParameter: pipelinechannel--max_depth
+              pipelinechannel--min_samples_leaf:
+                componentInputParameter: pipelinechannel--min_samples_leaf
+              pipelinechannel--min_samples_split:
+                componentInputParameter: pipelinechannel--min_samples_split
+              pipelinechannel--n_estimators:
+                componentInputParameter: pipelinechannel--n_estimators
+              pipelinechannel--random_state:
+                componentInputParameter: pipelinechannel--random_state
+          taskInfo:
+            name: train
+    inputDefinitions:
+      parameters:
+        pipelinechannel--data_path:
+          parameterType: STRING
+        pipelinechannel--max_depth:
+          parameterType: NUMBER_INTEGER
+        pipelinechannel--min_samples_leaf:
+          parameterType: NUMBER_INTEGER
+        pipelinechannel--min_samples_split:
+          parameterType: NUMBER_INTEGER
+        pipelinechannel--n_estimators:
+          parameterType: NUMBER_INTEGER
+        pipelinechannel--random_state:
+          parameterType: NUMBER_INTEGER
+        pipelinechannel--validate-data-validation_success:
+          parameterType: BOOLEAN
   comp-preprocess:
     executorLabel: exec-preprocess
     inputDefinitions:
@@ -66,6 +134,9 @@ components:
           artifactType:
             schemaTitle: system.Metrics
             schemaVersion: 0.0.1
+      parameters:
+        validation_success:
+          parameterType: BOOLEAN
 deploymentSpec:
   executors:
     exec-preprocess:
@@ -190,11 +261,12 @@ deploymentSpec:
 
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef validate_data(\n    data_path: str,\n    metrics: Output[Metrics]\n\
-          ):\n    \"\"\"Validate wine data for drift using Great Expectations with\
-          \ Git functionality disabled.\"\"\"\n    import os\n    import sys\n   \
-          \ import json\n    import pandas as pd\n\n    import logging\n    # Configure\
-          \ root logger and specific loggers to suppress debug messages\n    logging.getLogger().setLevel(logging.ERROR)\
+          \ *\nfrom builtins import bool\n\ndef validate_data(\n    data_path: str,\n\
+          \    metrics: Output[Metrics],\n    validation_success: Output[bool]\n):\n\
+          \    \"\"\"Validate wine data for drift using Great Expectations with Git\
+          \ functionality disabled.\"\"\"\n    import os\n    import sys\n    import\
+          \ json\n    import pandas as pd\n\n    import logging\n    # Configure root\
+          \ logger and specific loggers to suppress debug messages\n    logging.getLogger().setLevel(logging.ERROR)\
           \  # Set root logger to ERROR\n    logging.getLogger('great_expectations').setLevel(logging.ERROR)\n\
           \    logging.getLogger('great_expectations.expectations.registry').setLevel(logging.CRITICAL)\
           \  # Even stricter for registry\n\n\n    # Set environment variables\n \
@@ -276,11 +348,14 @@ deploymentSpec:
           successful_expectations\"]))\n        metrics.log_metric(\"unsuccessful_expectations\"\
           , float(validation_results.statistics[\"unsuccessful_expectations\"]))\n\
           \n        print(f\"Validation {'passed' if validation_passed else 'failed'}\"\
-          )\n        print(f\"Metrics: {validation_metrics}\")\n\n        return validation_metrics\n\
+          )\n        print(f\"Metrics: {validation_metrics}\")\n\n        validation_success\
+          \ = validation_passed\n        with open(validation_success.path, 'w') as\
+          \ f:\n            f.write(str(validation_passed))\n        return validation_metrics\n\
           \n    except Exception as e:\n        print(f\"Error in validate_data: {type(e).__name__}:\
           \ {str(e)}\")\n        import traceback\n        print(traceback.format_exc())\n\
           \        # Log failure in metrics\n        metrics.log_metric(\"validation_success\"\
-          , 0.0)\n        metrics.log_metric(\"error\", 1.0)\n        raise\n\n"
+          , 0.0)\n        metrics.log_metric(\"error\", 1.0)\n        with open(validation_success.path,\
+          \ 'w') as f:\n            f.write(\"False\")\n        raise\n\n"
         image: pes1ug19cs601/wine-quality-mlops:latest
 pipelineInfo:
   description: End-to-end ML pipeline for wine quality prediction
@@ -288,45 +363,15 @@ pipelineInfo:
 root:
   dag:
     tasks:
-      preprocess:
-        cachingOptions:
-          enableCache: true
+      condition-1:
         componentRef:
-          name: comp-preprocess
+          name: comp-condition-1
         dependentTasks:
         - validate-data
         inputs:
           parameters:
-            data_path:
+            pipelinechannel--data_path:
               componentInputParameter: data_path
-        taskInfo:
-          name: preprocess
-      train:
-        cachingOptions:
-          enableCache: true
-        componentRef:
-          name: comp-train
-        dependentTasks:
-        - preprocess
-        inputs:
-          artifacts:
-            features:
-              taskOutputArtifact:
-                outputArtifactKey: features
-                producerTask: preprocess
-            labels:
-              taskOutputArtifact:
-                outputArtifactKey: labels
-                producerTask: preprocess
-          parameters:
-            hyperparameters:
-              runtimeValue:
-                constant:
-                  max_depth: '{{$.inputs.parameters[''pipelinechannel--max_depth'']}}'
-                  min_samples_leaf: '{{$.inputs.parameters[''pipelinechannel--min_samples_leaf'']}}'
-                  min_samples_split: '{{$.inputs.parameters[''pipelinechannel--min_samples_split'']}}'
-                  n_estimators: '{{$.inputs.parameters[''pipelinechannel--n_estimators'']}}'
-                  random_state: '{{$.inputs.parameters[''pipelinechannel--random_state'']}}'
             pipelinechannel--max_depth:
               componentInputParameter: max_depth
             pipelinechannel--min_samples_leaf:
@@ -337,8 +382,15 @@ root:
               componentInputParameter: n_estimators
             pipelinechannel--random_state:
               componentInputParameter: random_state
+            pipelinechannel--validate-data-validation_success:
+              taskOutputParameter:
+                outputParameterKey: validation_success
+                producerTask: validate-data
         taskInfo:
-          name: train
+          name: condition-1
+        triggerPolicy:
+          condition: inputs.parameter_values['pipelinechannel--validate-data-validation_success']
+            == true
       validate-data:
         cachingOptions:
           enableCache: true
