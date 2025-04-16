@@ -350,12 +350,13 @@ deploymentSpec:
           \n        print(f\"Validation {'passed' if validation_passed else 'failed'}\"\
           )\n        print(f\"Metrics: {validation_metrics}\")\n\n        validation_success\
           \ = validation_passed\n        with open(validation_success.path, 'w') as\
-          \ f:\n            f.write(str(validation_passed))\n        return validation_metrics\n\
-          \n    except Exception as e:\n        print(f\"Error in validate_data: {type(e).__name__}:\
-          \ {str(e)}\")\n        import traceback\n        print(traceback.format_exc())\n\
-          \        # Log failure in metrics\n        metrics.log_metric(\"validation_success\"\
-          , 0.0)\n        metrics.log_metric(\"error\", 1.0)\n        with open(validation_success.path,\
-          \ 'w') as f:\n            f.write(\"False\")\n        raise\n\n"
+          \ f:\n            f.write(str(validation_passed).lower())\n        return\
+          \ validation_metrics\n\n    except Exception as e:\n        print(f\"Error\
+          \ in validate_data: {type(e).__name__}: {str(e)}\")\n        import traceback\n\
+          \        print(traceback.format_exc())\n        # Log failure in metrics\n\
+          \        metrics.log_metric(\"validation_success\", 0.0)\n        metrics.log_metric(\"\
+          error\", 1.0)\n        with open(validation_success.path, 'w') as f:\n \
+          \           f.write(\"False\")\n        raise\n\n"
         image: pes1ug19cs601/wine-quality-mlops:latest
 pipelineInfo:
   description: End-to-end ML pipeline for wine quality prediction

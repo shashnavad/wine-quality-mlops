@@ -289,7 +289,7 @@ def validate_data(
         
         validation_success = validation_passed
         with open(validation_success.path, 'w') as f:
-            f.write(str(validation_passed))
+            f.write(str(validation_passed).lower())
         return validation_metrics
         
     except Exception as e:
