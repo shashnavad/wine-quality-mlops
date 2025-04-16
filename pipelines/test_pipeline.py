@@ -181,6 +181,11 @@ def test_train(tmp_path):
     labels_path = os.path.join(tmp_path, "labels.npy")
     model_path = os.path.join(tmp_path, "model.pkl")
     metrics_path = os.path.join(tmp_path, "metrics.json")
+    scaler_path = os.path.join(tmp_path, "scaler.pkl") 
+
+    import joblib
+    from sklearn.preprocessing import StandardScaler
+    joblib.dump(StandardScaler(), scaler_path) 
     
     # Create dummy input data
     np.save(features_path, np.random.rand(10, 11))
@@ -194,7 +199,8 @@ def test_train(tmp_path):
         labels=MockArtifact(labels_path),
         hyperparameters={"n_estimators": 100},
         model=MockArtifact(model_path),
-        metrics=MockArtifact(metrics_path)
+        metrics=MockArtifact(metrics_path),
+        scaler=MockArtifact(scaler_path)
     )
     
     assert os.path.exists(model_path)

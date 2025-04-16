@@ -72,7 +72,8 @@ def train(
     labels: Input[Dataset],
     hyperparameters: dict,
     model: Output[Model],
-    metrics: Output[Metrics]
+    metrics: Output[Metrics],
+    scaler: Input[Model]
 ):
     """Train a RandomForestRegressor model."""
     import os
@@ -124,6 +125,7 @@ def train(
                 mlflow.log_metric("train_r2", train_score)
                 mlflow.log_metric("test_r2", test_score)
                 mlflow.sklearn.log_model(model_obj, "model")
+                mlflow.log_artifact(scaler.path, "preprocessor")
             
             print("Successfully logged metrics to MLflow")
         except Exception as e:
@@ -340,7 +342,8 @@ def wine_quality_pipeline(
         train_task = train(
             features=preprocess_task.outputs['features'],
             labels=preprocess_task.outputs['labels'],
-            hyperparameters=hyperparameters
+            hyperparameters=hyperparameters,
+            scaler=preprocess_task.outputs['scaler']
         )
 
 if __name__ == '__main__':

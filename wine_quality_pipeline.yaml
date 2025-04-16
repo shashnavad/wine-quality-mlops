@@ -40,6 +40,10 @@ components:
                 taskOutputArtifact:
                   outputArtifactKey: labels
                   producerTask: preprocess
+              scaler:
+                taskOutputArtifact:
+                  outputArtifactKey: scaler
+                  producerTask: preprocess
             parameters:
               hyperparameters:
                 runtimeValue:
@@ -108,6 +112,10 @@ components:
         labels:
           artifactType:
             schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        scaler:
+          artifactType:
+            schemaTitle: system.Model
             schemaVersion: 0.0.1
       parameters:
         hyperparameters:
@@ -204,31 +212,32 @@ deploymentSpec:
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef train(\n    features: Input[Dataset],\n    labels: Input[Dataset],\n\
-          \    hyperparameters: dict,\n    model: Output[Model],\n    metrics: Output[Metrics]\n\
-          ):\n    \"\"\"Train a RandomForestRegressor model.\"\"\"\n    import os\n\
-          \    import joblib\n    import json\n    import numpy as np\n    from sklearn.model_selection\
-          \ import train_test_split\n    from sklearn.ensemble import RandomForestRegressor\n\
-          \    import mlflow\n\n    # Load data\n    X = np.load(features.path)\n\
-          \    y = np.load(labels.path)\n\n    # Split data\n    X_train, X_test,\
-          \ y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)\n\
-          \n    # Train model\n    model_obj = RandomForestRegressor(**hyperparameters)\n\
-          \    model_obj.fit(X_train, y_train)\n\n    # Evaluate model\n    train_score\
-          \ = model_obj.score(X_train, y_train)\n    test_score = model_obj.score(X_test,\
-          \ y_test)\n\n    # Save metrics\n    metrics_dict = {\n        'train_r2':\
-          \ float(train_score),\n        'test_r2': float(test_score)\n    }\n   \
-          \ with open(metrics.path, 'w') as f:\n        json.dump(metrics_dict, f,\
-          \ indent=2)\n\n    # Save model\n    joblib.dump(model_obj, model.path)\n\
-          \n    # Only log to MLflow if not in testing mode and if MLflow server is\
-          \ available\n    if not os.environ.get(\"TESTING\", \"False\").lower() ==\
-          \ \"true\":\n        try:\n            # Set a timeout for MLflow connection\
-          \ attempts\n            import socket\n            socket.setdefaulttimeout(5)\
-          \  # 5 second timeout\n\n            # Try to connect to MLflow server\n\
-          \            mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
+          \    hyperparameters: dict,\n    model: Output[Model],\n    metrics: Output[Metrics],\n\
+          \    scaler: Input[Model]\n):\n    \"\"\"Train a RandomForestRegressor model.\"\
+          \"\"\n    import os\n    import joblib\n    import json\n    import numpy\
+          \ as np\n    from sklearn.model_selection import train_test_split\n    from\
+          \ sklearn.ensemble import RandomForestRegressor\n    import mlflow\n\n \
+          \   # Load data\n    X = np.load(features.path)\n    y = np.load(labels.path)\n\
+          \n    # Split data\n    X_train, X_test, y_train, y_test = train_test_split(X,\
+          \ y, test_size=0.2, random_state=42)\n\n    # Train model\n    model_obj\
+          \ = RandomForestRegressor(**hyperparameters)\n    model_obj.fit(X_train,\
+          \ y_train)\n\n    # Evaluate model\n    train_score = model_obj.score(X_train,\
+          \ y_train)\n    test_score = model_obj.score(X_test, y_test)\n\n    # Save\
+          \ metrics\n    metrics_dict = {\n        'train_r2': float(train_score),\n\
+          \        'test_r2': float(test_score)\n    }\n    with open(metrics.path,\
+          \ 'w') as f:\n        json.dump(metrics_dict, f, indent=2)\n\n    # Save\
+          \ model\n    joblib.dump(model_obj, model.path)\n\n    # Only log to MLflow\
+          \ if not in testing mode and if MLflow server is available\n    if not os.environ.get(\"\
+          TESTING\", \"False\").lower() == \"true\":\n        try:\n            #\
+          \ Set a timeout for MLflow connection attempts\n            import socket\n\
+          \            socket.setdefaulttimeout(5)  # 5 second timeout\n\n       \
+          \     # Try to connect to MLflow server\n            mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
           \n            with mlflow.start_run():\n                mlflow.log_params(hyperparameters)\n\
           \                mlflow.log_metric(\"train_r2\", train_score)\n        \
           \        mlflow.log_metric(\"test_r2\", test_score)\n                mlflow.sklearn.log_model(model_obj,\
-          \ \"model\")\n\n            print(\"Successfully logged metrics to MLflow\"\
-          )\n        except Exception as e:\n            print(f\"MLflow logging failed\
+          \ \"model\")\n                mlflow.log_artifact(scaler.path, \"preprocessor\"\
+          )\n\n            print(\"Successfully logged metrics to MLflow\")\n    \
+          \    except Exception as e:\n            print(f\"MLflow logging failed\
           \ (this is expected in local environments): {e}\")\n            print(\"\
           Continuing without MLflow logging\")\n    else:\n        print(\"Testing\
           \ mode active, skipping MLflow logging\")\n\n    print(f\"Model saved to\
