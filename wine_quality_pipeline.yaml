@@ -8,10 +8,38 @@
 #    min_samples_split: int [Default: 2.0]
 #    n_estimators: int [Default: 100.0]
 #    random_state: int [Default: 42.0]
+#    service_name: str [Default: 'wine-quality-predictor']
 components:
   comp-condition-1:
     dag:
       tasks:
+        deploy-model:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-deploy-model
+          dependentTasks:
+          - preprocess
+          - train
+          inputs:
+            artifacts:
+              metrics:
+                taskOutputArtifact:
+                  outputArtifactKey: metrics
+                  producerTask: train
+              model:
+                taskOutputArtifact:
+                  outputArtifactKey: model
+                  producerTask: train
+              scaler:
+                taskOutputArtifact:
+                  outputArtifactKey: scaler
+                  producerTask: preprocess
+            parameters:
+              service_name:
+                componentInputParameter: pipelinechannel--service_name
+          taskInfo:
+            name: deploy-model
         preprocess:
           cachingOptions:
             enableCache: true
@@ -79,8 +107,37 @@ components:
           parameterType: NUMBER_INTEGER
         pipelinechannel--random_state:
           parameterType: NUMBER_INTEGER
+        pipelinechannel--service_name:
+          parameterType: STRING
         pipelinechannel--validate-data-validation_success:
           parameterType: BOOLEAN
+  comp-deploy-model:
+    executorLabel: exec-deploy-model
+    inputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        scaler:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        namespace:
+          defaultValue: kubeflow
+          isOptional: true
+          parameterType: STRING
+        service_name:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
   comp-preprocess:
     executorLabel: exec-preprocess
     inputDefinitions:
@@ -147,6 +204,97 @@ components:
           parameterType: BOOLEAN
 deploymentSpec:
   executors:
+    exec-deploy-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - deploy_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.12.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'kserve==0.10.1'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef deploy_model(\n    model: Input[Model],\n    metrics: Input[Metrics],\n\
+          \    scaler: Input[Model],\n    service_name: str,\n    namespace: str =\
+          \ \"kubeflow\"\n) -> str:\n    import os\n    import json\n    import pickle\n\
+          \    import tempfile\n    from kubernetes import client\n    from kubernetes\
+          \ import config\n    from kserve import KServeClient\n    from kserve import\
+          \ constants\n    from kserve import V1beta1InferenceService\n    from kserve\
+          \ import V1beta1InferenceServiceSpec\n    from kserve import V1beta1PredictorSpec\n\
+          \    from kserve import V1beta1SKLearnSpec\n\n    # Create a temporary directory\
+          \ to prepare the model\n    model_dir = tempfile.mkdtemp()\n    os.makedirs(os.path.join(model_dir,\
+          \ \"model\"), exist_ok=True)\n\n    # Load and save the model and scaler\n\
+          \    with open(model.path, 'rb') as f:\n        model_obj = pickle.load(f)\n\
+          \n    with open(scaler.path, 'rb') as f:\n        scaler_obj = pickle.load(f)\n\
+          \n    # Save model and scaler to the temporary directory\n    with open(os.path.join(model_dir,\
+          \ \"model\", \"model.pkl\"), 'wb') as f:\n        pickle.dump(model_obj,\
+          \ f)\n\n    with open(os.path.join(model_dir, \"model\", \"scaler.pkl\"\
+          ), 'wb') as f:\n        pickle.dump(scaler_obj, f)\n\n    # Load metrics\
+          \ to include in model metadata\n    with open(metrics.path, 'r') as f:\n\
+          \        metrics_data = json.load(f)\n\n    # Create a metadata file\n \
+          \   metadata = {\n        \"name\": service_name,\n        \"version\":\
+          \ \"v1\",\n        \"metrics\": metrics_data\n    }\n\n    with open(os.path.join(model_dir,\
+          \ \"model\", \"metadata.json\"), 'w') as f:\n        json.dump(metadata,\
+          \ f)\n\n    # Create a simple inference script\n    inference_script = \"\
+          \"\"\nimport os\nimport pickle\nimport json\nimport numpy as np\n\nclass\
+          \ WineQualityModel(object):\n    def __init__(self):\n        self.model\
+          \ = None\n        self.scaler = None\n        self.ready = False\n\n   \
+          \ def load(self):\n        model_dir = os.path.join(os.getcwd(), \"model\"\
+          )\n        with open(os.path.join(model_dir, \"model.pkl\"), \"rb\") as\
+          \ f:\n            self.model = pickle.load(f)\n        with open(os.path.join(model_dir,\
+          \ \"scaler.pkl\"), \"rb\") as f:\n            self.scaler = pickle.load(f)\n\
+          \        self.ready = True\n\n    def predict(self, X, feature_names=None):\n\
+          \        if not self.ready:\n            self.load()\n        X_scaled =\
+          \ self.scaler.transform(X)\n        predictions = self.model.predict(X_scaled)\n\
+          \        return predictions.tolist()\n\"\"\"\n\n    with open(os.path.join(model_dir,\
+          \ \"model\", \"WineQualityModel.py\"), 'w') as f:\n        f.write(inference_script)\n\
+          \n    # Create a simple requirements.txt\n    with open(os.path.join(model_dir,\
+          \ \"model\", \"requirements.txt\"), 'w') as f:\n        f.write(\"scikit-learn==1.0.2\\\
+          nnumpy==1.22.3\\n\")\n\n    # Upload the model to a storage location (MinIO,\
+          \ S3, etc.)\n    # For this example, we'll assume you have a PVC for model\
+          \ storage\n    model_uri = f\"pvc://{service_name}-models\"\n\n    # In\
+          \ a real implementation, you would upload the model to your storage\n  \
+          \  # For now, we'll just print the path and assume it's accessible\n   \
+          \ print(f\"Model prepared at: {model_dir}\")\n    print(f\"Model would be\
+          \ deployed from: {model_uri}\")\n\n    try:\n        # Initialize KServe\
+          \ client\n        config.load_incluster_config()\n        kserve_client\
+          \ = KServeClient()\n\n        # Define the inference service\n        isvc\
+          \ = V1beta1InferenceService(\n            api_version=constants.KSERVE_V1BETA1,\n\
+          \            kind=constants.KSERVE_KIND,\n            metadata=client.V1ObjectMeta(\n\
+          \                name=service_name,\n                namespace=namespace,\n\
+          \                annotations={\"sidecar.istio.io/inject\": \"false\"}\n\
+          \            ),\n            spec=V1beta1InferenceServiceSpec(\n       \
+          \         predictor=V1beta1PredictorSpec(\n                    sklearn=V1beta1SKLearnSpec(\n\
+          \                        storage_uri=model_uri,\n                      \
+          \  resources=client.V1ResourceRequirements(\n                          \
+          \  requests={\"cpu\": \"100m\", \"memory\": \"1Gi\"},\n                \
+          \            limits={\"cpu\": \"1\", \"memory\": \"2Gi\"}\n            \
+          \            )\n                    )\n                )\n            )\n\
+          \        )\n\n        # Create the inference service\n        kserve_client.create(isvc)\n\
+          \        print(f\"Inference service '{service_name}' created in namespace\
+          \ '{namespace}'\")\n\n        # Get the URL of the deployed service\n  \
+          \      service_url = f\"http://{service_name}.{namespace}.svc.cluster.local/v1/models/{service_name}:predict\"\
+          \n        return service_url\n\n    except Exception as e:\n        print(f\"\
+          Error deploying model: {str(e)}\")\n        return f\"Deployment failed:\
+          \ {str(e)}\"\n\n"
+        image: pes1ug19cs601/wine-quality-mlops:latest
     exec-preprocess:
       container:
         args:
@@ -392,6 +540,8 @@ root:
               componentInputParameter: n_estimators
             pipelinechannel--random_state:
               componentInputParameter: random_state
+            pipelinechannel--service_name:
+              componentInputParameter: service_name
             pipelinechannel--validate-data-validation_success:
               taskOutputParameter:
                 outputParameterKey: validation_success
@@ -437,5 +587,9 @@ root:
         defaultValue: 42.0
         isOptional: true
         parameterType: NUMBER_INTEGER
+      service_name:
+        defaultValue: wine-quality-predictor
+        isOptional: true
+        parameterType: STRING
 schemaVersion: 2.1.0
 sdkVersion: kfp-2.12.1

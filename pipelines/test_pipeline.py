@@ -205,3 +205,74 @@ def test_train(tmp_path):
     
     assert os.path.exists(model_path)
     assert os.path.exists(metrics_path)
+
+def test_deploy_model(tmp_path):
+    os.makedirs(tmp_path, exist_ok=True)
+    
+    # Create paths for all required artifacts
+    model_path = os.path.join(tmp_path, "model.pkl")
+    metrics_path = os.path.join(tmp_path, "metrics.json")
+    scaler_path = os.path.join(tmp_path, "scaler.pkl")
+    
+    # Create mock model
+    from sklearn.ensemble import RandomForestRegressor
+    import pickle
+    model_obj = RandomForestRegressor(n_estimators=10)
+    with open(model_path, 'wb') as f:
+        pickle.dump(model_obj, f)
+    
+    # Create mock metrics
+    import json
+    metrics_data = {
+        "train_r2": 0.85,
+        "test_r2": 0.82,
+        "mean_absolute_error": 0.35
+    }
+    with open(metrics_path, 'w') as f:
+        json.dump(metrics_data, f)
+    
+    # Create mock scaler
+    from sklearn.preprocessing import StandardScaler
+    import joblib
+    scaler_obj = StandardScaler()
+    joblib.dump(scaler_obj, scaler_path)
+    
+    # Import the deploy_model component
+    from wine_quality_pipeline import deploy_model
+    
+    # Mock kubernetes and kserve modules
+    import sys
+    from unittest.mock import MagicMock
+    
+    # Create mock modules
+    mock_kserve = MagicMock()
+    mock_kubernetes = MagicMock()
+    
+    # Add mocks to sys.modules
+    sys.modules['kserve'] = mock_kserve
+    sys.modules['kubernetes'] = mock_kubernetes
+    sys.modules['kubernetes.client'] = MagicMock()
+    sys.modules['kubernetes.config'] = MagicMock()
+    
+    # Create a mock KServeClient
+    mock_kserve_client = MagicMock()
+    mock_kserve.KServeClient.return_value = mock_kserve_client
+    
+    # Set environment variable for testing
+    os.environ["TESTING"] = "True"
+    
+    # Call the deploy_model function
+    service_url = deploy_model.python_func(
+        model=MockArtifact(model_path),
+        metrics=MockArtifact(metrics_path),
+        scaler=MockArtifact(scaler_path),
+        service_name="wine-quality-test",
+        namespace="kubeflow-test"
+    )
+    
+    # Verify that the KServe client was called to create the inference service
+    mock_kserve_client.create.assert_called_once()
+    
+    # Assert that the function returns a service URL
+    assert isinstance(service_url, str)
+    assert "wine-quality-test" in service_url
