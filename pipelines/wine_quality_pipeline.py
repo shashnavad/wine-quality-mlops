@@ -398,11 +398,11 @@ class WineQualityModel(object):
         f.write("scikit-learn==1.0.2\nnumpy==1.22.3\n")
     
     # Upload the model to a storage location (MinIO, S3, etc.)
-    # For this example, we'll assume you have a PVC for model storage
+    # Assuming you have a PVC for model storage
     model_uri = f"pvc://{service_name}-models"
     
     # In a real implementation, you would upload the model to your storage
-    # For now, we'll just print the path and assume it's accessible
+    # For now, printing the path and assuming it's accessible
     print(f"Model prepared at: {model_dir}")
     print(f"Model would be deployed from: {model_uri}")
     
