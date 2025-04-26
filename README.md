@@ -7,19 +7,13 @@ This project demonstrates MLOps best practices using Kubeflow pipelines for wine
 ```
 wine-quality-mlops/
 ├── data/               # Data files and data versioning
-│   ├── raw/           # Raw data files
-│   └── processed/     # Processed data files
+├── great_expectations/ 
 ├── k8s/               # Kubernetes manifests for deployment
-├── models/            # Trained models and artifacts
-│   ├── trained/       # Saved model files
-│   └── configs/       # Model configurations
 ├── pipelines/         # Kubeflow/Argo pipeline definitions
 │   ├── wine_quality_pipeline.py    # Main ML pipeline
 ├── scripts/           # Utility scripts
 │   ├── run_pipeline.py
 │   └── run_server.py
-├── src/              # Source code for ML components
-├── tests/            # Test files
 ├── Dockerfile        # Container definition
 ├── requirements.txt  # Python dependencies
 └── README.md         # Project documentation
