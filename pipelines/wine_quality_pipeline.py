@@ -33,7 +33,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 import joblib
 import mlflow
-
+from typing import List
 @component(
     base_image='pes1ug19cs601/wine-quality-mlops:latest'
 )
@@ -65,7 +65,8 @@ def preprocess(
     print(f"Scaler saved to {scaler.path}")
 
 @component(
-    base_image='pes1ug19cs601/wine-quality-mlops:latest'
+    base_image='pes1ug19cs601/wine-quality-mlops:latest',
+    packages_to_install=['xgboost', 'lightgbm']
 )
 def train(
     features: Input[Dataset],
@@ -73,43 +74,58 @@ def train(
     hyperparameters: dict,
     model: Output[Model],
     metrics: Output[Metrics],
-    scaler: Input[Model]
+    scaler: Input[Model],
+    model_type: str = "RandomForest"  # Default argument moved to the end
 ):
-    """Train a RandomForestRegressor model."""
+    """Train a model with support for multiple algorithms."""
     import os
     import joblib
     import json
     import numpy as np
     from sklearn.model_selection import train_test_split
     from sklearn.ensemble import RandomForestRegressor
+    import xgboost as xgb
+    import lightgbm as lgb
     import mlflow
-    
+
     # Load data
     X = np.load(features.path)
     y = np.load(labels.path)
 
     # Split data
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
+    
+    # Initialize model based on model_type
+    print(f"Training {model_type} model with hyperparameters: {hyperparameters}")
+    if model_type == "RandomForest":
+        model_obj = RandomForestRegressor(**hyperparameters)
+    elif model_type == "XGBoost":
+        model_obj = xgb.XGBRegressor(**hyperparameters)
+    elif model_type == "LightGBM":
+        model_obj = lgb.LGBMRegressor(**hyperparameters)
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}")
+    
     # Train model
-    model_obj = RandomForestRegressor(**hyperparameters)
     model_obj.fit(X_train, y_train)
-
+    
     # Evaluate model
     train_score = model_obj.score(X_train, y_train)
     test_score = model_obj.score(X_test, y_test)
-
+    
     # Save metrics
     metrics_dict = {
+        'model_type': model_type,
         'train_r2': float(train_score),
         'test_r2': float(test_score)
     }
+    
     with open(metrics.path, 'w') as f:
         json.dump(metrics_dict, f, indent=2)
-
+    
     # Save model
     joblib.dump(model_obj, model.path)
-
+    
     # Only log to MLflow if not in testing mode and if MLflow server is available
     if not os.environ.get("TESTING", "False").lower() == "true":
         try:
@@ -119,24 +135,89 @@ def train(
             
             # Try to connect to MLflow server
             mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')
-            
             with mlflow.start_run():
+                mlflow.log_param("model_type", model_type)
                 mlflow.log_params(hyperparameters)
                 mlflow.log_metric("train_r2", train_score)
                 mlflow.log_metric("test_r2", test_score)
                 mlflow.sklearn.log_model(model_obj, "model")
                 mlflow.log_artifact(scaler.path, "preprocessor")
-            
-            print("Successfully logged metrics to MLflow")
+                print("Successfully logged metrics to MLflow")
         except Exception as e:
             print(f"MLflow logging failed (this is expected in local environments): {e}")
             print("Continuing without MLflow logging")
     else:
         print("Testing mode active, skipping MLflow logging")
-
+    
     print(f"Model saved to {model.path}")
     print(f"Metrics saved to {metrics.path}")
     print(f"Training metrics: {metrics_dict}")
+
+@component(
+    base_image='pes1ug19cs601/wine-quality-mlops:latest'
+)
+def select_best_model(
+    best_model: Output[Model],  
+    best_metrics: Output[Metrics],  
+    model1: Input[Model] = None,  
+    model2: Input[Model] = None, 
+    model3: Input[Model] = None,  
+    metrics1: Input[Metrics] = None,  
+    metrics2: Input[Metrics] = None,  
+    metrics3: Input[Metrics] = None  
+):
+    """Select the best model based on test R² score."""
+    import json
+    import shutil
+    import copy
+    
+    best_score = -float('inf')
+    best_model_idx = -1
+    all_metrics_summary = []
+    
+    # Create lists of non-None inputs
+    models = [m for m in [model1, model2, model3] if m is not None]
+    metrics_files = [m for m in [metrics1, metrics2, metrics3] if m is not None]
+    
+    # Load all metrics and find the best model
+    for i, metric_file in enumerate(metrics_files):
+        with open(metric_file.path, 'r') as f:
+            metric_data = json.load(f)
+            
+        # Create a simplified summary to avoid circular references
+        metric_summary = {
+            "model_type": metric_data.get("model_type", "Unknown"),
+            "test_r2": float(metric_data.get("test_r2", -1.0)),
+            "train_r2": float(metric_data.get("train_r2", -1.0))
+        }
+        
+        all_metrics_summary.append(metric_summary)
+        test_r2 = metric_summary["test_r2"]
+        
+        if test_r2 > best_score:
+            best_score = test_r2
+            best_model_idx = i
+    
+    # Copy the best model and its metrics
+    if best_model_idx >= 0:
+        shutil.copy(models[best_model_idx].path, best_model.path)
+        
+        # Create a new dictionary for best metrics to avoid reference issues
+        best_metric_data = copy.deepcopy(all_metrics_summary[best_model_idx])
+        best_metric_data["model_comparison"] = [
+            {"model": m["model_type"], "test_r2": m["test_r2"]}
+            for m in all_metrics_summary
+        ]
+        
+        with open(best_metrics.path, 'w') as f:
+            json.dump(best_metric_data, f, indent=2)
+            
+        print(f"Selected best model: {best_metric_data['model_type']}")
+        print(f"Best test R²: {best_score:.4f}")
+    else:
+        raise ValueError("No valid models found")
+
+
 @component(
     base_image='pes1ug19cs601/wine-quality-mlops:latest'
 )
@@ -445,60 +526,128 @@ class WineQualityModel(object):
         print(f"Error deploying model: {str(e)}")
         return f"Deployment failed: {str(e)}"
 
-
-@dsl.pipeline(
+if os.environ.get("TESTING", "False").lower() != "true":
+    @dsl.pipeline(
     name='wine-quality-pipeline',
-    description='End-to-end ML pipeline for wine quality prediction'
+    description='End-to-end ML pipeline for wine quality prediction with model selection'
 )
-def wine_quality_pipeline(
-    data_path: str = 'https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv',
-    n_estimators: int = 100,
-    max_depth: int = None,
-    min_samples_split: int = 2,
-    min_samples_leaf: int = 1,
-    random_state: int = 42,
-    service_name: str = 'wine-quality-predictor'
-):
-    """Define the wine quality prediction pipeline."""
-    
-    # Convert hyperparameters to dictionary
-    hyperparameters = {
-        'n_estimators': n_estimators,
-        'max_depth': max_depth,
-        'min_samples_split': min_samples_split,
-        'min_samples_leaf': min_samples_leaf,
-        'random_state': random_state
-    }
-
-    # Validate data for drift
-    validation_task = validate_data(data_path=data_path)
-    
-    with dsl.Condition(
-        validation_task.outputs["validation_success"] == True
+    def wine_quality_pipeline(
+        data_path: str = 'https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv',
+        # Model types to train
+        use_random_forest: bool = True,
+        use_xgboost: bool = True,
+        use_lightgbm: bool = True,  
+        # RandomForest parameters
+        rf_n_estimators: int = 100,
+        rf_max_depth: int = None,
+        rf_min_samples_split: int = 2,
+        # XGBoost parameters
+        xgb_n_estimators: int = 100,
+        xgb_max_depth: int = 6,
+        xgb_learning_rate: float = 0.1,
+        # LightGBM parameters
+        lgbm_n_estimators: int = 100,
+        lgbm_max_depth: int = -1,
+        lgbm_learning_rate: float = 0.1,
+        # Service parameters
+        service_name: str = 'wine-quality-predictor'
     ):
-
-        # Preprocess data (only if validation passes)
-        preprocess_task = preprocess(data_path=data_path).after(validation_task)
+        """Define the wine quality prediction pipeline with model selection."""
         
-        # Train and evaluate model
-        train_task = train(
-            features=preprocess_task.outputs['features'],
-            labels=preprocess_task.outputs['labels'],
-            hyperparameters=hyperparameters,
-            scaler=preprocess_task.outputs['scaler']
+        # Construct hyperparameters dictionaries from pipeline parameters
+        hyperparameters = {
+            "RandomForest": {
+                'n_estimators': rf_n_estimators,
+                'max_depth': rf_max_depth,
+                'min_samples_split': rf_min_samples_split,
+                'random_state': 42
+            },
+            "XGBoost": {
+                'n_estimators': xgb_n_estimators,
+                'max_depth': xgb_max_depth,
+                'learning_rate': xgb_learning_rate,
+                'random_state': 42
+            },
+            "LightGBM": {
+                'n_estimators': lgbm_n_estimators,
+                'max_depth': lgbm_max_depth,
+                'learning_rate': lgbm_learning_rate,
+                'random_state': 42
+            }
+        }
+
+        # Validate data for drift
+        validation_task = validate_data(data_path=data_path)
+        
+        with dsl.Condition(validation_task.outputs["validation_success"] == True):
+            # Preprocess data (only if validation passes)
+            preprocess_task = preprocess(data_path=data_path).after(validation_task)
+            
+            # Create separate tasks for each model type to avoid using ParallelFor
+            rf_task = None
+            xgb_task = None
+            lgbm_task = None
+            
+            # Create model training tasks individually
+            if use_random_forest:
+                rf_task = train(
+                    features=preprocess_task.outputs['features'],
+                    labels=preprocess_task.outputs['labels'],
+                    hyperparameters=hyperparameters["RandomForest"],
+                    model_type="RandomForest",
+                    scaler=preprocess_task.outputs['scaler']
+                )
+            
+            if use_xgboost:
+                xgb_task = train(
+                    features=preprocess_task.outputs['features'],
+                    labels=preprocess_task.outputs['labels'],
+                    hyperparameters=hyperparameters["XGBoost"],
+                    model_type="XGBoost",
+                    scaler=preprocess_task.outputs['scaler']
+                )
+            
+            if use_lightgbm:
+                lgbm_task = train(
+                    features=preprocess_task.outputs['features'],
+                    labels=preprocess_task.outputs['labels'],
+                    hyperparameters=hyperparameters["LightGBM"],
+                    model_type="LightGBM",
+                    scaler=preprocess_task.outputs['scaler']
+                )
+            
+            # Collect models and metrics from all active tasks
+            model_list = []
+            metrics_list = []
+            
+            # Add outputs from each model training task if it exists
+            for task in [rf_task, xgb_task, lgbm_task]:
+                if task is not None:
+                    model_list.append(task.outputs['model'])
+                    metrics_list.append(task.outputs['metrics'])
+            
+            # Select the best model using individual inputs
+            select_model_task = select_best_model(
+            model1=rf_task.outputs['model'] if rf_task else None,
+            model2=xgb_task.outputs['model'] if xgb_task else None,
+            model3=lgbm_task.outputs['model'] if lgbm_task else None,
+            metrics1=rf_task.outputs['metrics'] if rf_task else None,
+            metrics2=xgb_task.outputs['metrics'] if xgb_task else None,
+            metrics3=lgbm_task.outputs['metrics'] if lgbm_task else None
         )
 
-        # Deploy model
-        deploy_task = deploy_model(
-            model=train_task.outputs['model'],
-            metrics=train_task.outputs['metrics'],
-            scaler=preprocess_task.outputs['scaler'],
-            service_name=service_name
-        )
+            
+            # Deploy only the best model
+            deploy_task = deploy_model(
+                model=select_model_task.outputs['best_model'],
+                metrics=select_model_task.outputs['best_metrics'],
+                scaler=preprocess_task.outputs['scaler'],
+                service_name=service_name
+            )
 
-if __name__ == '__main__':
-    # Compile the pipeline
-    compiler.Compiler().compile(
-        pipeline_func=wine_quality_pipeline,
-        package_path='wine_quality_pipeline.yaml'
-    ) 
+    if __name__ == '__main__':
+        # Compile the pipeline
+        compiler.Compiler().compile(
+            pipeline_func=wine_quality_pipeline,
+            package_path='wine_quality_pipeline.yaml'
+        ) 

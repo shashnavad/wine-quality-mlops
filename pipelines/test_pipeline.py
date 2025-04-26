@@ -29,7 +29,13 @@ sys.modules['git'] = MockGit
 
 import pytest
 import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+import xgboost as xgb
+import lightgbm as lgb
 from kfp import local
+import pickle
+import json 
+import joblib
 from kfp.dsl import Dataset, Model, Metrics
 
 # Import components directly
@@ -181,11 +187,12 @@ def test_train(tmp_path):
     labels_path = os.path.join(tmp_path, "labels.npy")
     model_path = os.path.join(tmp_path, "model.pkl")
     metrics_path = os.path.join(tmp_path, "metrics.json")
-    scaler_path = os.path.join(tmp_path, "scaler.pkl") 
-
+    scaler_path = os.path.join(tmp_path, "scaler.pkl")
+    
     import joblib
     from sklearn.preprocessing import StandardScaler
-    joblib.dump(StandardScaler(), scaler_path) 
+    
+    joblib.dump(StandardScaler(), scaler_path)
     
     # Create dummy input data
     np.save(features_path, np.random.rand(10, 11))
@@ -194,10 +201,12 @@ def test_train(tmp_path):
     # Disable MLflow for testing
     os.environ["TESTING"] = "True"
     
+    # Test RandomForest model type
     train.python_func(
         features=MockArtifact(features_path),
         labels=MockArtifact(labels_path),
         hyperparameters={"n_estimators": 100},
+        model_type="RandomForest",
         model=MockArtifact(model_path),
         metrics=MockArtifact(metrics_path),
         scaler=MockArtifact(scaler_path)
@@ -205,6 +214,21 @@ def test_train(tmp_path):
     
     assert os.path.exists(model_path)
     assert os.path.exists(metrics_path)
+    
+    # Test XGBoost model type
+    train.python_func(
+        features=MockArtifact(features_path),
+        labels=MockArtifact(labels_path),
+        hyperparameters={"n_estimators": 100, "max_depth": 6},
+        model_type="XGBoost",
+        model=MockArtifact(model_path),
+        metrics=MockArtifact(metrics_path),
+        scaler=MockArtifact(scaler_path)
+    )
+    
+    assert os.path.exists(model_path)
+    assert os.path.exists(metrics_path)
+
 
 def test_deploy_model(tmp_path):
     os.makedirs(tmp_path, exist_ok=True)
@@ -276,3 +300,77 @@ def test_deploy_model(tmp_path):
     # Assert that the function returns a service URL
     assert isinstance(service_url, str)
     assert "wine-quality-test" in service_url
+
+def test_select_best_model(tmp_path):
+    """Test select_best_model with individual model inputs."""
+    os.makedirs(tmp_path, exist_ok=True)
+    
+    # Create paths for multiple models and metrics
+    model_paths = [
+        os.path.join(tmp_path, f"model_{i}.pkl") for i in range(3)
+    ]
+    
+    metrics_paths = [
+        os.path.join(tmp_path, f"metrics_{i}.json") for i in range(3)
+    ]
+    
+    best_model_path = os.path.join(tmp_path, "best_model.pkl")
+    best_metrics_path = os.path.join(tmp_path, "best_metrics.json")
+    
+    X = np.random.rand(10, 4)
+    y = np.random.rand(10)
+    
+    # Create and fit models
+    models = [
+        RandomForestRegressor(n_estimators=10).fit(X, y),
+        xgb.XGBRegressor(n_estimators=10).fit(X, y),
+        lgb.LGBMRegressor(n_estimators=10).fit(X, y)
+    ]
+    
+    model_types = ["RandomForest", "XGBoost", "LightGBM"]
+    test_scores = [0.82, 0.85, 0.80]  # XGBoost should be selected as best
+    
+    # Save models and metrics
+    for i, (model, model_type, test_score) in enumerate(zip(models, model_types, test_scores)):
+        joblib.dump(model, model_paths[i])
+        
+        metrics_data = {
+            "model_type": model_type,
+            "train_r2": float(test_score + 0.05),
+            "test_r2": float(test_score)
+        }
+        
+        with open(metrics_paths[i], 'w') as f:
+            json.dump(metrics_data, f)
+    
+    # Import the select_best_model component
+    from wine_quality_pipeline import select_best_model
+    
+    # Create mock artifacts
+    model_artifacts = [MockArtifact(path) for path in model_paths]
+    metrics_artifacts = [MockArtifact(path) for path in metrics_paths]
+    best_model_artifact = MockArtifact(best_model_path)
+    best_metrics_artifact = MockArtifact(best_metrics_path)
+    
+    # Call the function with the updated parameter structure
+    select_best_model.python_func(
+        best_model=best_model_artifact,
+        best_metrics=best_metrics_artifact,
+        model1=model_artifacts[0],
+        model2=model_artifacts[1],
+        model3=model_artifacts[2],
+        metrics1=metrics_artifacts[0],
+        metrics2=metrics_artifacts[1],
+        metrics3=metrics_artifacts[2]
+    )
+    
+    # Verify results
+    assert os.path.exists(best_model_path)
+    assert os.path.exists(best_metrics_path)
+    
+    # Check that XGBoost was selected as the best model
+    with open(best_metrics_path, 'r') as f:
+        best_metrics_data = json.load(f)
+    assert best_metrics_data["model_type"] == "XGBoost"
+
+

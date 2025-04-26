@@ -1,14 +1,21 @@
 # PIPELINE DEFINITION
 # Name: wine-quality-pipeline
-# Description: End-to-end ML pipeline for wine quality prediction
+# Description: End-to-end ML pipeline for wine quality prediction with model selection
 # Inputs:
 #    data_path: str [Default: 'https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv']
-#    max_depth: int
-#    min_samples_leaf: int [Default: 1.0]
-#    min_samples_split: int [Default: 2.0]
-#    n_estimators: int [Default: 100.0]
-#    random_state: int [Default: 42.0]
+#    lgbm_learning_rate: float [Default: 0.1]
+#    lgbm_max_depth: int [Default: -1.0]
+#    lgbm_n_estimators: int [Default: 100.0]
+#    rf_max_depth: int
+#    rf_min_samples_split: int [Default: 2.0]
+#    rf_n_estimators: int [Default: 100.0]
 #    service_name: str [Default: 'wine-quality-predictor']
+#    use_lightgbm: bool [Default: True]
+#    use_random_forest: bool [Default: True]
+#    use_xgboost: bool [Default: True]
+#    xgb_learning_rate: float [Default: 0.1]
+#    xgb_max_depth: int [Default: 6.0]
+#    xgb_n_estimators: int [Default: 100.0]
 components:
   comp-condition-1:
     dag:
@@ -20,17 +27,17 @@ components:
             name: comp-deploy-model
           dependentTasks:
           - preprocess
-          - train
+          - select-best-model
           inputs:
             artifacts:
               metrics:
                 taskOutputArtifact:
-                  outputArtifactKey: metrics
-                  producerTask: train
+                  outputArtifactKey: best_metrics
+                  producerTask: select-best-model
               model:
                 taskOutputArtifact:
-                  outputArtifactKey: model
-                  producerTask: train
+                  outputArtifactKey: best_model
+                  producerTask: select-best-model
               scaler:
                 taskOutputArtifact:
                   outputArtifactKey: scaler
@@ -51,6 +58,43 @@ components:
                 componentInputParameter: pipelinechannel--data_path
           taskInfo:
             name: preprocess
+        select-best-model:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-select-best-model
+          dependentTasks:
+          - train
+          - train-2
+          - train-3
+          inputs:
+            artifacts:
+              metrics1:
+                taskOutputArtifact:
+                  outputArtifactKey: metrics
+                  producerTask: train
+              metrics2:
+                taskOutputArtifact:
+                  outputArtifactKey: metrics
+                  producerTask: train-2
+              metrics3:
+                taskOutputArtifact:
+                  outputArtifactKey: metrics
+                  producerTask: train-3
+              model1:
+                taskOutputArtifact:
+                  outputArtifactKey: model
+                  producerTask: train
+              model2:
+                taskOutputArtifact:
+                  outputArtifactKey: model
+                  producerTask: train-2
+              model3:
+                taskOutputArtifact:
+                  outputArtifactKey: model
+                  producerTask: train-3
+          taskInfo:
+            name: select-best-model
         train:
           cachingOptions:
             enableCache: true
@@ -76,41 +120,127 @@ components:
               hyperparameters:
                 runtimeValue:
                   constant:
-                    max_depth: '{{$.inputs.parameters[''pipelinechannel--max_depth'']}}'
-                    min_samples_leaf: '{{$.inputs.parameters[''pipelinechannel--min_samples_leaf'']}}'
-                    min_samples_split: '{{$.inputs.parameters[''pipelinechannel--min_samples_split'']}}'
-                    n_estimators: '{{$.inputs.parameters[''pipelinechannel--n_estimators'']}}'
-                    random_state: '{{$.inputs.parameters[''pipelinechannel--random_state'']}}'
-              pipelinechannel--max_depth:
-                componentInputParameter: pipelinechannel--max_depth
-              pipelinechannel--min_samples_leaf:
-                componentInputParameter: pipelinechannel--min_samples_leaf
-              pipelinechannel--min_samples_split:
-                componentInputParameter: pipelinechannel--min_samples_split
-              pipelinechannel--n_estimators:
-                componentInputParameter: pipelinechannel--n_estimators
-              pipelinechannel--random_state:
-                componentInputParameter: pipelinechannel--random_state
+                    max_depth: '{{$.inputs.parameters[''pipelinechannel--rf_max_depth'']}}'
+                    min_samples_split: '{{$.inputs.parameters[''pipelinechannel--rf_min_samples_split'']}}'
+                    n_estimators: '{{$.inputs.parameters[''pipelinechannel--rf_n_estimators'']}}'
+                    random_state: 42.0
+              model_type:
+                runtimeValue:
+                  constant: RandomForest
+              pipelinechannel--rf_max_depth:
+                componentInputParameter: pipelinechannel--rf_max_depth
+              pipelinechannel--rf_min_samples_split:
+                componentInputParameter: pipelinechannel--rf_min_samples_split
+              pipelinechannel--rf_n_estimators:
+                componentInputParameter: pipelinechannel--rf_n_estimators
           taskInfo:
             name: train
+        train-2:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-train-2
+          dependentTasks:
+          - preprocess
+          inputs:
+            artifacts:
+              features:
+                taskOutputArtifact:
+                  outputArtifactKey: features
+                  producerTask: preprocess
+              labels:
+                taskOutputArtifact:
+                  outputArtifactKey: labels
+                  producerTask: preprocess
+              scaler:
+                taskOutputArtifact:
+                  outputArtifactKey: scaler
+                  producerTask: preprocess
+            parameters:
+              hyperparameters:
+                runtimeValue:
+                  constant:
+                    learning_rate: '{{$.inputs.parameters[''pipelinechannel--xgb_learning_rate'']}}'
+                    max_depth: '{{$.inputs.parameters[''pipelinechannel--xgb_max_depth'']}}'
+                    n_estimators: '{{$.inputs.parameters[''pipelinechannel--xgb_n_estimators'']}}'
+                    random_state: 42.0
+              model_type:
+                runtimeValue:
+                  constant: XGBoost
+              pipelinechannel--xgb_learning_rate:
+                componentInputParameter: pipelinechannel--xgb_learning_rate
+              pipelinechannel--xgb_max_depth:
+                componentInputParameter: pipelinechannel--xgb_max_depth
+              pipelinechannel--xgb_n_estimators:
+                componentInputParameter: pipelinechannel--xgb_n_estimators
+          taskInfo:
+            name: train-2
+        train-3:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-train-3
+          dependentTasks:
+          - preprocess
+          inputs:
+            artifacts:
+              features:
+                taskOutputArtifact:
+                  outputArtifactKey: features
+                  producerTask: preprocess
+              labels:
+                taskOutputArtifact:
+                  outputArtifactKey: labels
+                  producerTask: preprocess
+              scaler:
+                taskOutputArtifact:
+                  outputArtifactKey: scaler
+                  producerTask: preprocess
+            parameters:
+              hyperparameters:
+                runtimeValue:
+                  constant:
+                    learning_rate: '{{$.inputs.parameters[''pipelinechannel--lgbm_learning_rate'']}}'
+                    max_depth: '{{$.inputs.parameters[''pipelinechannel--lgbm_max_depth'']}}'
+                    n_estimators: '{{$.inputs.parameters[''pipelinechannel--lgbm_n_estimators'']}}'
+                    random_state: 42.0
+              model_type:
+                runtimeValue:
+                  constant: LightGBM
+              pipelinechannel--lgbm_learning_rate:
+                componentInputParameter: pipelinechannel--lgbm_learning_rate
+              pipelinechannel--lgbm_max_depth:
+                componentInputParameter: pipelinechannel--lgbm_max_depth
+              pipelinechannel--lgbm_n_estimators:
+                componentInputParameter: pipelinechannel--lgbm_n_estimators
+          taskInfo:
+            name: train-3
     inputDefinitions:
       parameters:
         pipelinechannel--data_path:
           parameterType: STRING
-        pipelinechannel--max_depth:
+        pipelinechannel--lgbm_learning_rate:
+          parameterType: NUMBER_DOUBLE
+        pipelinechannel--lgbm_max_depth:
           parameterType: NUMBER_INTEGER
-        pipelinechannel--min_samples_leaf:
+        pipelinechannel--lgbm_n_estimators:
           parameterType: NUMBER_INTEGER
-        pipelinechannel--min_samples_split:
+        pipelinechannel--rf_max_depth:
           parameterType: NUMBER_INTEGER
-        pipelinechannel--n_estimators:
+        pipelinechannel--rf_min_samples_split:
           parameterType: NUMBER_INTEGER
-        pipelinechannel--random_state:
+        pipelinechannel--rf_n_estimators:
           parameterType: NUMBER_INTEGER
         pipelinechannel--service_name:
           parameterType: STRING
         pipelinechannel--validate-data-validation_success:
           parameterType: BOOLEAN
+        pipelinechannel--xgb_learning_rate:
+          parameterType: NUMBER_DOUBLE
+        pipelinechannel--xgb_max_depth:
+          parameterType: NUMBER_INTEGER
+        pipelinechannel--xgb_n_estimators:
+          parameterType: NUMBER_INTEGER
   comp-deploy-model:
     executorLabel: exec-deploy-model
     inputDefinitions:
@@ -158,6 +288,50 @@ components:
           artifactType:
             schemaTitle: system.Model
             schemaVersion: 0.0.1
+  comp-select-best-model:
+    executorLabel: exec-select-best-model
+    inputDefinitions:
+      artifacts:
+        metrics1:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+          isOptional: true
+        metrics2:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+          isOptional: true
+        metrics3:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+          isOptional: true
+        model1:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+          isOptional: true
+        model2:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+          isOptional: true
+        model3:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+          isOptional: true
+    outputDefinitions:
+      artifacts:
+        best_metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        best_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
   comp-train:
     executorLabel: exec-train
     inputDefinitions:
@@ -177,6 +351,76 @@ components:
       parameters:
         hyperparameters:
           parameterType: STRUCT
+        model_type:
+          defaultValue: RandomForest
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+  comp-train-2:
+    executorLabel: exec-train-2
+    inputDefinitions:
+      artifacts:
+        features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        labels:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        scaler:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        hyperparameters:
+          parameterType: STRUCT
+        model_type:
+          defaultValue: RandomForest
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+  comp-train-3:
+    executorLabel: exec-train-3
+    inputDefinitions:
+      artifacts:
+        features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        labels:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        scaler:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        hyperparameters:
+          parameterType: STRUCT
+        model_type:
+          defaultValue: RandomForest
+          isOptional: true
+          parameterType: STRING
     outputDefinitions:
       artifacts:
         metrics:
@@ -268,15 +512,14 @@ deploymentSpec:
           \n    # Create a simple requirements.txt\n    with open(os.path.join(model_dir,\
           \ \"model\", \"requirements.txt\"), 'w') as f:\n        f.write(\"scikit-learn==1.0.2\\\
           nnumpy==1.22.3\\n\")\n\n    # Upload the model to a storage location (MinIO,\
-          \ S3, etc.)\n    # For this example, we'll assume you have a PVC for model\
-          \ storage\n    model_uri = f\"pvc://{service_name}-models\"\n\n    # In\
-          \ a real implementation, you would upload the model to your storage\n  \
-          \  # For now, we'll just print the path and assume it's accessible\n   \
-          \ print(f\"Model prepared at: {model_dir}\")\n    print(f\"Model would be\
-          \ deployed from: {model_uri}\")\n\n    try:\n        # Initialize KServe\
-          \ client\n        config.load_incluster_config()\n        kserve_client\
-          \ = KServeClient()\n\n        # Define the inference service\n        isvc\
-          \ = V1beta1InferenceService(\n            api_version=constants.KSERVE_V1BETA1,\n\
+          \ S3, etc.)\n    # Assuming you have a PVC for model storage\n    model_uri\
+          \ = f\"pvc://{service_name}-models\"\n\n    # In a real implementation,\
+          \ you would upload the model to your storage\n    # For now, printing the\
+          \ path and assuming it's accessible\n    print(f\"Model prepared at: {model_dir}\"\
+          )\n    print(f\"Model would be deployed from: {model_uri}\")\n\n    try:\n\
+          \        # Initialize KServe client\n        config.load_incluster_config()\n\
+          \        kserve_client = KServeClient()\n\n        # Define the inference\
+          \ service\n        isvc = V1beta1InferenceService(\n            api_version=constants.KSERVE_V1BETA1,\n\
           \            kind=constants.KSERVE_KIND,\n            metadata=client.V1ObjectMeta(\n\
           \                name=service_name,\n                namespace=namespace,\n\
           \                annotations={\"sidecar.istio.io/inject\": \"false\"}\n\
@@ -333,13 +576,13 @@ deploymentSpec:
           \ saved to {labels.path}\")\n    print(f\"Scaler saved to {scaler.path}\"\
           )\n\n"
         image: pes1ug19cs601/wine-quality-mlops:latest
-    exec-train:
+    exec-select-best-model:
       container:
         args:
         - --executor_input
         - '{{$}}'
         - --function_to_execute
-        - train
+        - select_best_model
         command:
         - sh
         - -c
@@ -359,20 +602,86 @@ deploymentSpec:
 
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef select_best_model(\n    best_model: Output[Model],  \n    best_metrics:\
+          \ Output[Metrics],  \n    model1: Input[Model] = None,  \n    model2: Input[Model]\
+          \ = None, \n    model3: Input[Model] = None,  \n    metrics1: Input[Metrics]\
+          \ = None,  \n    metrics2: Input[Metrics] = None,  \n    metrics3: Input[Metrics]\
+          \ = None  \n):\n    \"\"\"Select the best model based on test R\xB2 score.\"\
+          \"\"\n    import json\n    import shutil\n    import copy\n\n    best_score\
+          \ = -float('inf')\n    best_model_idx = -1\n    all_metrics_summary = []\n\
+          \n    # Create lists of non-None inputs\n    models = [m for m in [model1,\
+          \ model2, model3] if m is not None]\n    metrics_files = [m for m in [metrics1,\
+          \ metrics2, metrics3] if m is not None]\n\n    # Load all metrics and find\
+          \ the best model\n    for i, metric_file in enumerate(metrics_files):\n\
+          \        with open(metric_file.path, 'r') as f:\n            metric_data\
+          \ = json.load(f)\n\n        # Create a simplified summary to avoid circular\
+          \ references\n        metric_summary = {\n            \"model_type\": metric_data.get(\"\
+          model_type\", \"Unknown\"),\n            \"test_r2\": float(metric_data.get(\"\
+          test_r2\", -1.0)),\n            \"train_r2\": float(metric_data.get(\"train_r2\"\
+          , -1.0))\n        }\n\n        all_metrics_summary.append(metric_summary)\n\
+          \        test_r2 = metric_summary[\"test_r2\"]\n\n        if test_r2 > best_score:\n\
+          \            best_score = test_r2\n            best_model_idx = i\n\n  \
+          \  # Copy the best model and its metrics\n    if best_model_idx >= 0:\n\
+          \        shutil.copy(models[best_model_idx].path, best_model.path)\n\n \
+          \       # Create a new dictionary for best metrics to avoid reference issues\n\
+          \        best_metric_data = copy.deepcopy(all_metrics_summary[best_model_idx])\n\
+          \        best_metric_data[\"model_comparison\"] = [\n            {\"model\"\
+          : m[\"model_type\"], \"test_r2\": m[\"test_r2\"]}\n            for m in\
+          \ all_metrics_summary\n        ]\n\n        with open(best_metrics.path,\
+          \ 'w') as f:\n            json.dump(best_metric_data, f, indent=2)\n\n \
+          \       print(f\"Selected best model: {best_metric_data['model_type']}\"\
+          )\n        print(f\"Best test R\xB2: {best_score:.4f}\")\n    else:\n  \
+          \      raise ValueError(\"No valid models found\")\n\n"
+        image: pes1ug19cs601/wine-quality-mlops:latest
+    exec-train:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.12.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'xgboost' 'lightgbm'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef train(\n    features: Input[Dataset],\n    labels: Input[Dataset],\n\
           \    hyperparameters: dict,\n    model: Output[Model],\n    metrics: Output[Metrics],\n\
-          \    scaler: Input[Model]\n):\n    \"\"\"Train a RandomForestRegressor model.\"\
-          \"\"\n    import os\n    import joblib\n    import json\n    import numpy\
-          \ as np\n    from sklearn.model_selection import train_test_split\n    from\
-          \ sklearn.ensemble import RandomForestRegressor\n    import mlflow\n\n \
-          \   # Load data\n    X = np.load(features.path)\n    y = np.load(labels.path)\n\
+          \    scaler: Input[Model],\n    model_type: str = \"RandomForest\"  # Default\
+          \ argument moved to the end\n):\n    \"\"\"Train a model with support for\
+          \ multiple algorithms.\"\"\"\n    import os\n    import joblib\n    import\
+          \ json\n    import numpy as np\n    from sklearn.model_selection import\
+          \ train_test_split\n    from sklearn.ensemble import RandomForestRegressor\n\
+          \    import xgboost as xgb\n    import lightgbm as lgb\n    import mlflow\n\
+          \n    # Load data\n    X = np.load(features.path)\n    y = np.load(labels.path)\n\
           \n    # Split data\n    X_train, X_test, y_train, y_test = train_test_split(X,\
-          \ y, test_size=0.2, random_state=42)\n\n    # Train model\n    model_obj\
-          \ = RandomForestRegressor(**hyperparameters)\n    model_obj.fit(X_train,\
-          \ y_train)\n\n    # Evaluate model\n    train_score = model_obj.score(X_train,\
-          \ y_train)\n    test_score = model_obj.score(X_test, y_test)\n\n    # Save\
-          \ metrics\n    metrics_dict = {\n        'train_r2': float(train_score),\n\
-          \        'test_r2': float(test_score)\n    }\n    with open(metrics.path,\
+          \ y, test_size=0.2, random_state=42)\n\n    # Initialize model based on\
+          \ model_type\n    print(f\"Training {model_type} model with hyperparameters:\
+          \ {hyperparameters}\")\n    if model_type == \"RandomForest\":\n       \
+          \ model_obj = RandomForestRegressor(**hyperparameters)\n    elif model_type\
+          \ == \"XGBoost\":\n        model_obj = xgb.XGBRegressor(**hyperparameters)\n\
+          \    elif model_type == \"LightGBM\":\n        model_obj = lgb.LGBMRegressor(**hyperparameters)\n\
+          \    else:\n        raise ValueError(f\"Unsupported model type: {model_type}\"\
+          )\n\n    # Train model\n    model_obj.fit(X_train, y_train)\n\n    # Evaluate\
+          \ model\n    train_score = model_obj.score(X_train, y_train)\n    test_score\
+          \ = model_obj.score(X_test, y_test)\n\n    # Save metrics\n    metrics_dict\
+          \ = {\n        'model_type': model_type,\n        'train_r2': float(train_score),\n\
+          \        'test_r2': float(test_score)\n    }\n\n    with open(metrics.path,\
           \ 'w') as f:\n        json.dump(metrics_dict, f, indent=2)\n\n    # Save\
           \ model\n    joblib.dump(model_obj, model.path)\n\n    # Only log to MLflow\
           \ if not in testing mode and if MLflow server is available\n    if not os.environ.get(\"\
@@ -380,12 +689,151 @@ deploymentSpec:
           \ Set a timeout for MLflow connection attempts\n            import socket\n\
           \            socket.setdefaulttimeout(5)  # 5 second timeout\n\n       \
           \     # Try to connect to MLflow server\n            mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
-          \n            with mlflow.start_run():\n                mlflow.log_params(hyperparameters)\n\
+          \            with mlflow.start_run():\n                mlflow.log_param(\"\
+          model_type\", model_type)\n                mlflow.log_params(hyperparameters)\n\
           \                mlflow.log_metric(\"train_r2\", train_score)\n        \
           \        mlflow.log_metric(\"test_r2\", test_score)\n                mlflow.sklearn.log_model(model_obj,\
           \ \"model\")\n                mlflow.log_artifact(scaler.path, \"preprocessor\"\
-          )\n\n            print(\"Successfully logged metrics to MLflow\")\n    \
-          \    except Exception as e:\n            print(f\"MLflow logging failed\
+          )\n                print(\"Successfully logged metrics to MLflow\")\n  \
+          \      except Exception as e:\n            print(f\"MLflow logging failed\
+          \ (this is expected in local environments): {e}\")\n            print(\"\
+          Continuing without MLflow logging\")\n    else:\n        print(\"Testing\
+          \ mode active, skipping MLflow logging\")\n\n    print(f\"Model saved to\
+          \ {model.path}\")\n    print(f\"Metrics saved to {metrics.path}\")\n   \
+          \ print(f\"Training metrics: {metrics_dict}\")\n\n"
+        image: pes1ug19cs601/wine-quality-mlops:latest
+    exec-train-2:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.12.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'xgboost' 'lightgbm'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train(\n    features: Input[Dataset],\n    labels: Input[Dataset],\n\
+          \    hyperparameters: dict,\n    model: Output[Model],\n    metrics: Output[Metrics],\n\
+          \    scaler: Input[Model],\n    model_type: str = \"RandomForest\"  # Default\
+          \ argument moved to the end\n):\n    \"\"\"Train a model with support for\
+          \ multiple algorithms.\"\"\"\n    import os\n    import joblib\n    import\
+          \ json\n    import numpy as np\n    from sklearn.model_selection import\
+          \ train_test_split\n    from sklearn.ensemble import RandomForestRegressor\n\
+          \    import xgboost as xgb\n    import lightgbm as lgb\n    import mlflow\n\
+          \n    # Load data\n    X = np.load(features.path)\n    y = np.load(labels.path)\n\
+          \n    # Split data\n    X_train, X_test, y_train, y_test = train_test_split(X,\
+          \ y, test_size=0.2, random_state=42)\n\n    # Initialize model based on\
+          \ model_type\n    print(f\"Training {model_type} model with hyperparameters:\
+          \ {hyperparameters}\")\n    if model_type == \"RandomForest\":\n       \
+          \ model_obj = RandomForestRegressor(**hyperparameters)\n    elif model_type\
+          \ == \"XGBoost\":\n        model_obj = xgb.XGBRegressor(**hyperparameters)\n\
+          \    elif model_type == \"LightGBM\":\n        model_obj = lgb.LGBMRegressor(**hyperparameters)\n\
+          \    else:\n        raise ValueError(f\"Unsupported model type: {model_type}\"\
+          )\n\n    # Train model\n    model_obj.fit(X_train, y_train)\n\n    # Evaluate\
+          \ model\n    train_score = model_obj.score(X_train, y_train)\n    test_score\
+          \ = model_obj.score(X_test, y_test)\n\n    # Save metrics\n    metrics_dict\
+          \ = {\n        'model_type': model_type,\n        'train_r2': float(train_score),\n\
+          \        'test_r2': float(test_score)\n    }\n\n    with open(metrics.path,\
+          \ 'w') as f:\n        json.dump(metrics_dict, f, indent=2)\n\n    # Save\
+          \ model\n    joblib.dump(model_obj, model.path)\n\n    # Only log to MLflow\
+          \ if not in testing mode and if MLflow server is available\n    if not os.environ.get(\"\
+          TESTING\", \"False\").lower() == \"true\":\n        try:\n            #\
+          \ Set a timeout for MLflow connection attempts\n            import socket\n\
+          \            socket.setdefaulttimeout(5)  # 5 second timeout\n\n       \
+          \     # Try to connect to MLflow server\n            mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
+          \            with mlflow.start_run():\n                mlflow.log_param(\"\
+          model_type\", model_type)\n                mlflow.log_params(hyperparameters)\n\
+          \                mlflow.log_metric(\"train_r2\", train_score)\n        \
+          \        mlflow.log_metric(\"test_r2\", test_score)\n                mlflow.sklearn.log_model(model_obj,\
+          \ \"model\")\n                mlflow.log_artifact(scaler.path, \"preprocessor\"\
+          )\n                print(\"Successfully logged metrics to MLflow\")\n  \
+          \      except Exception as e:\n            print(f\"MLflow logging failed\
+          \ (this is expected in local environments): {e}\")\n            print(\"\
+          Continuing without MLflow logging\")\n    else:\n        print(\"Testing\
+          \ mode active, skipping MLflow logging\")\n\n    print(f\"Model saved to\
+          \ {model.path}\")\n    print(f\"Metrics saved to {metrics.path}\")\n   \
+          \ print(f\"Training metrics: {metrics_dict}\")\n\n"
+        image: pes1ug19cs601/wine-quality-mlops:latest
+    exec-train-3:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.12.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'xgboost' 'lightgbm'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train(\n    features: Input[Dataset],\n    labels: Input[Dataset],\n\
+          \    hyperparameters: dict,\n    model: Output[Model],\n    metrics: Output[Metrics],\n\
+          \    scaler: Input[Model],\n    model_type: str = \"RandomForest\"  # Default\
+          \ argument moved to the end\n):\n    \"\"\"Train a model with support for\
+          \ multiple algorithms.\"\"\"\n    import os\n    import joblib\n    import\
+          \ json\n    import numpy as np\n    from sklearn.model_selection import\
+          \ train_test_split\n    from sklearn.ensemble import RandomForestRegressor\n\
+          \    import xgboost as xgb\n    import lightgbm as lgb\n    import mlflow\n\
+          \n    # Load data\n    X = np.load(features.path)\n    y = np.load(labels.path)\n\
+          \n    # Split data\n    X_train, X_test, y_train, y_test = train_test_split(X,\
+          \ y, test_size=0.2, random_state=42)\n\n    # Initialize model based on\
+          \ model_type\n    print(f\"Training {model_type} model with hyperparameters:\
+          \ {hyperparameters}\")\n    if model_type == \"RandomForest\":\n       \
+          \ model_obj = RandomForestRegressor(**hyperparameters)\n    elif model_type\
+          \ == \"XGBoost\":\n        model_obj = xgb.XGBRegressor(**hyperparameters)\n\
+          \    elif model_type == \"LightGBM\":\n        model_obj = lgb.LGBMRegressor(**hyperparameters)\n\
+          \    else:\n        raise ValueError(f\"Unsupported model type: {model_type}\"\
+          )\n\n    # Train model\n    model_obj.fit(X_train, y_train)\n\n    # Evaluate\
+          \ model\n    train_score = model_obj.score(X_train, y_train)\n    test_score\
+          \ = model_obj.score(X_test, y_test)\n\n    # Save metrics\n    metrics_dict\
+          \ = {\n        'model_type': model_type,\n        'train_r2': float(train_score),\n\
+          \        'test_r2': float(test_score)\n    }\n\n    with open(metrics.path,\
+          \ 'w') as f:\n        json.dump(metrics_dict, f, indent=2)\n\n    # Save\
+          \ model\n    joblib.dump(model_obj, model.path)\n\n    # Only log to MLflow\
+          \ if not in testing mode and if MLflow server is available\n    if not os.environ.get(\"\
+          TESTING\", \"False\").lower() == \"true\":\n        try:\n            #\
+          \ Set a timeout for MLflow connection attempts\n            import socket\n\
+          \            socket.setdefaulttimeout(5)  # 5 second timeout\n\n       \
+          \     # Try to connect to MLflow server\n            mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
+          \            with mlflow.start_run():\n                mlflow.log_param(\"\
+          model_type\", model_type)\n                mlflow.log_params(hyperparameters)\n\
+          \                mlflow.log_metric(\"train_r2\", train_score)\n        \
+          \        mlflow.log_metric(\"test_r2\", test_score)\n                mlflow.sklearn.log_model(model_obj,\
+          \ \"model\")\n                mlflow.log_artifact(scaler.path, \"preprocessor\"\
+          )\n                print(\"Successfully logged metrics to MLflow\")\n  \
+          \      except Exception as e:\n            print(f\"MLflow logging failed\
           \ (this is expected in local environments): {e}\")\n            print(\"\
           Continuing without MLflow logging\")\n    else:\n        print(\"Testing\
           \ mode active, skipping MLflow logging\")\n\n    print(f\"Model saved to\
@@ -516,7 +964,7 @@ deploymentSpec:
           \           f.write(\"False\")\n        raise\n\n"
         image: pes1ug19cs601/wine-quality-mlops:latest
 pipelineInfo:
-  description: End-to-end ML pipeline for wine quality prediction
+  description: End-to-end ML pipeline for wine quality prediction with model selection
   name: wine-quality-pipeline
 root:
   dag:
@@ -530,22 +978,30 @@ root:
           parameters:
             pipelinechannel--data_path:
               componentInputParameter: data_path
-            pipelinechannel--max_depth:
-              componentInputParameter: max_depth
-            pipelinechannel--min_samples_leaf:
-              componentInputParameter: min_samples_leaf
-            pipelinechannel--min_samples_split:
-              componentInputParameter: min_samples_split
-            pipelinechannel--n_estimators:
-              componentInputParameter: n_estimators
-            pipelinechannel--random_state:
-              componentInputParameter: random_state
+            pipelinechannel--lgbm_learning_rate:
+              componentInputParameter: lgbm_learning_rate
+            pipelinechannel--lgbm_max_depth:
+              componentInputParameter: lgbm_max_depth
+            pipelinechannel--lgbm_n_estimators:
+              componentInputParameter: lgbm_n_estimators
+            pipelinechannel--rf_max_depth:
+              componentInputParameter: rf_max_depth
+            pipelinechannel--rf_min_samples_split:
+              componentInputParameter: rf_min_samples_split
+            pipelinechannel--rf_n_estimators:
+              componentInputParameter: rf_n_estimators
             pipelinechannel--service_name:
               componentInputParameter: service_name
             pipelinechannel--validate-data-validation_success:
               taskOutputParameter:
                 outputParameterKey: validation_success
                 producerTask: validate-data
+            pipelinechannel--xgb_learning_rate:
+              componentInputParameter: xgb_learning_rate
+            pipelinechannel--xgb_max_depth:
+              componentInputParameter: xgb_max_depth
+            pipelinechannel--xgb_n_estimators:
+              componentInputParameter: xgb_n_estimators
         taskInfo:
           name: condition-1
         triggerPolicy:
@@ -568,28 +1024,56 @@ root:
         defaultValue: https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv
         isOptional: true
         parameterType: STRING
-      max_depth:
+      lgbm_learning_rate:
+        defaultValue: 0.1
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      lgbm_max_depth:
+        defaultValue: -1.0
         isOptional: true
         parameterType: NUMBER_INTEGER
-      min_samples_leaf:
-        defaultValue: 1.0
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      min_samples_split:
-        defaultValue: 2.0
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      n_estimators:
+      lgbm_n_estimators:
         defaultValue: 100.0
         isOptional: true
         parameterType: NUMBER_INTEGER
-      random_state:
-        defaultValue: 42.0
+      rf_max_depth:
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      rf_min_samples_split:
+        defaultValue: 2.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      rf_n_estimators:
+        defaultValue: 100.0
         isOptional: true
         parameterType: NUMBER_INTEGER
       service_name:
         defaultValue: wine-quality-predictor
         isOptional: true
         parameterType: STRING
+      use_lightgbm:
+        defaultValue: true
+        isOptional: true
+        parameterType: BOOLEAN
+      use_random_forest:
+        defaultValue: true
+        isOptional: true
+        parameterType: BOOLEAN
+      use_xgboost:
+        defaultValue: true
+        isOptional: true
+        parameterType: BOOLEAN
+      xgb_learning_rate:
+        defaultValue: 0.1
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      xgb_max_depth:
+        defaultValue: 6.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      xgb_n_estimators:
+        defaultValue: 100.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
 schemaVersion: 2.1.0
 sdkVersion: kfp-2.12.1
