@@ -1,6 +1,6 @@
 # Wine Quality MLOps Project
 
-This project demonstrates MLOps best practices using Kubeflow pipelines for wine quality prediction. It implements a full ML pipeline including data validation, preprocessing, training, evaluation, and model serving.
+This is an MLOps project that implements an end-to-end machine learning pipeline for wine quality prediction using Kubeflow Pipelines. The project demonstrates MLOps best practices including pipeline orchestration, containerization, and Kubernetes deployment. The pipeline supports multiple model types (RandomForest, XGBoost, LightGBM) with selective training capabilities.
 
 ## Project Structure
 
@@ -51,9 +51,13 @@ pip install -r requirements.txt
    - Feature scaling
 
 3. Model Training
-   - Hyperparameter tuning
-   - Cross-validation
-   - Model selection
+   - Support for multiple model types:
+     - RandomForest
+     - XGBoost
+     - LightGBM
+   - Selective model training via boolean flags
+   - Hyperparameter configuration for each model type
+   - Automatic model evaluation and comparison
 
 4. Model Evaluation
    - Performance metrics
@@ -67,10 +71,11 @@ pip install -r requirements.txt
 
 ## Usage
 
-1. Test and create the pipeline:
+1. 1. Start the pipeline with specific model selections:
 ```bash
 python scripts/run_pipeline.py --rf-n-estimators 150 --rf-max-depth 10 --data-path ./data/winequality-red.csv
 ```
+   2. Or run with default settings (all models):
 
 2. Monitor the pipeline in Kubeflow dashboard
 
@@ -93,10 +98,14 @@ This is an MLOps project that implements an end-to-end machine learning pipeline
 1. **ML Pipeline** (`pipelines/wine_quality_pipeline.py`)
    - Data Download & Validation
    - Data Preprocessing with scikit-learn
-   - Model Training (Random Forest Regressor)
+   - Model Training with multiple algorithms:
+     - RandomForest Regressor
+     - XGBoost Regressor
+     - LightGBM Regressor
+   - Automatic Best Model Selection
    - Model Evaluation
    - Model Packaging for Deployment
-   - Built using Kubeflow Pipeline SDK
+   - Built using Kubeflow Pipeline SDK v2
 
 2. **Infrastructure**
    - `Dockerfile`: Container definition for the ML components
@@ -130,12 +139,12 @@ pytest pipelines/test_pipeline.py -v --capture=no --log-cli-level=DEBUG
    - Saves preprocessed features and labels
 
 4. **Model Training**
-   - Trains Random Forest, XGBoost and LightGBM models
-   - Configurable hyperparameters:
-     - n_estimators
-     - max_depth
-     - min_samples_split
-     - min_samples_leaf
+   - Selectively trains models based on boolean flags:
+     - RandomForest
+     - XGBoost
+     - LightGBM
+   - Configurable hyperparameters for each model type
+   - Models are trained independently based on user selection
 
 5. **Model Evaluation**
    - Calculates metrics:
@@ -144,7 +153,12 @@ pytest pipelines/test_pipeline.py -v --capture=no --log-cli-level=DEBUG
      - MAE
      - R² score
 
-6. **Model Deployment Packaging**
+6. **Best Model Selection**
+   - Automatically compares all trained models
+   - Selects the model with the highest test R² score
+   - Generates comparison metrics between models
+
+7. **Model Deployment Packaging**
    - Bundles model artifacts
    - Includes:
      - Trained model with the best metrics
@@ -170,9 +184,16 @@ kubectl apply -f k8s/pipeline-job.yaml
 
 ### Using the Parameterized Job
 
-To run the pipeline with custom hyperparameters:
+To run the pipeline with custom model selection and hyperparameters:
 
-1. Edit the environment variables in `k8s/parameterized-job.yaml`
+1. Edit the environment variables in `k8s/parameterized-job.yaml` to include:
+   - USE_RANDOM_FOREST: "true" or "false"
+   - USE_XGBOOST: "true" or "false"
+   - USE_LIGHTGBM: "true" or "false"
+   - RF_N_ESTIMATORS: "150"
+   - RF_MAX_DEPTH: "10"
+   - And other model-specific parameters
+
 2. Apply the job:
 
 ```bash
