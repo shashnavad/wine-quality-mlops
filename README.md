@@ -67,9 +67,9 @@ pip install -r requirements.txt
 
 ## Usage
 
-1. Start the pipeline:
+1. Test and create the pipeline:
 ```bash
-python src/pipelines/wine_quality_pipeline.py
+python scripts/run_pipeline.py --rf-n-estimators 150 --rf-max-depth 10 --data-path ./data/winequality-red.csv
 ```
 
 2. Monitor the pipeline in Kubeflow dashboard
@@ -102,23 +102,16 @@ This is an MLOps project that implements an end-to-end machine learning pipeline
    - `Dockerfile`: Container definition for the ML components
    - `k8s/`: Kubernetes manifests for deployment
 
-3. **Data Management** (`data/`)
-   - Structured with `raw/` and `processed/` directories
-   - Uses the UCI Wine Quality dataset
-   - Includes data validation checks
-
-4. **Model Management** (`models/`)
-   - `trained/`: Directory for saved models
-   - `configs/`: Model configuration files
-   - Uses scikit-learn's Random Forest implementation
-
-5. **Application Code**
+3. **Application Code**
    - `src/`: Core ML functionality
    - `scripts/`:
      - `run_pipeline.py`: Pipeline execution script
      - `run_server.py`: Model serving script
 
-6. **Testing** (`tests/`)
+4. **Testing**
+```bash
+pytest pipelines/test_pipeline.py -v --capture=no --log-cli-level=DEBUG
+```
    - `test_model.py`: Model testing functionality
 
 ### Pipeline Steps
@@ -137,7 +130,7 @@ This is an MLOps project that implements an end-to-end machine learning pipeline
    - Saves preprocessed features and labels
 
 4. **Model Training**
-   - Trains Random Forest model
+   - Trains Random Forest, XGBoost and LightGBM models
    - Configurable hyperparameters:
      - n_estimators
      - max_depth
@@ -154,7 +147,7 @@ This is an MLOps project that implements an end-to-end machine learning pipeline
 6. **Model Deployment Packaging**
    - Bundles model artifacts
    - Includes:
-     - Trained model
+     - Trained model with the best metrics
      - Scaler
      - Metrics
      - API specifications
