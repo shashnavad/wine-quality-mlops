@@ -1,6 +1,6 @@
 # Wine Quality MLOps Project
 
-This is an MLOps project that implements an end-to-end machine learning pipeline for wine quality prediction using Kubeflow Pipelines. The project demonstrates MLOps best practices including pipeline orchestration, containerization, and Kubernetes deployment. The pipeline supports multiple model types (RandomForest, XGBoost, LightGBM) with selective training capabilities.
+This is an MLOps project that implements an end-to-end machine learning pipeline for wine quality prediction using Kubeflow Pipelines. The project demonstrates MLOps best practices including pipeline orchestration, containerization, real-time monitoring and Kubernetes deployment. The pipeline supports multiple model types (RandomForest, XGBoost, LightGBM) with selective training capabilities.
 
 ## Project Structure
 
@@ -24,6 +24,7 @@ wine-quality-mlops/
 - Kubernetes cluster
 - Python 3.8+
 - Docker
+- Prometheus and Grafana installed in your cluster
 
 ## Setup
 
@@ -38,6 +39,11 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+3. Set up monitoring:
+```bash
+kubectl apply -f k8s/servicemonitor.yaml
+kubectl apply -f k8s/grafana-dashboard.yaml
+```
 ## Pipeline Components
 
 1. Data Validation
@@ -62,7 +68,7 @@ pip install -r requirements.txt
 4. Model Evaluation
    - Performance metrics
    - Model validation
-   - A/B testing setup
+   - Drift monitoring visualization
 
 5. Model Serving
    - Model deployment
@@ -145,6 +151,7 @@ pytest pipelines/test_pipeline.py -v --capture=no --log-cli-level=DEBUG
      - LightGBM
    - Configurable hyperparameters for each model type
    - Models are trained independently based on user selection
+   - The pipeline exposes key metrics through Prometheus
 
 5. **Model Evaluation**
    - Calculates metrics:
@@ -165,6 +172,22 @@ pytest pipelines/test_pipeline.py -v --capture=no --log-cli-level=DEBUG
      - Scaler
      - Metrics
      - API specifications
+    
+Monitoring Setup
+
+Prometheus Integration
+The pipeline now exposes key metrics through Prometheus:
+- Training metrics (R² scores by model type)
+- Training duration
+
+Each training component exposes metrics on port 8000, which are scraped by Prometheus using the ServiceMonitor configuration.
+
+Grafana Dashboards
+A custom Grafana dashboard visualizes:
+- Model performance metrics over time
+- Training durations across model types
+
+Access the dashboard at: http://<grafana-service>:3000/dashboards
 
 ## License
 
