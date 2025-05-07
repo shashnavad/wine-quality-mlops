@@ -668,6 +668,7 @@ deploymentSpec:
           \ json\n    import numpy as np\n    from sklearn.model_selection import\
           \ train_test_split\n    from sklearn.ensemble import RandomForestRegressor\n\
           \    import xgboost as xgb\n    import lightgbm as lgb\n    import mlflow\n\
+          \    import time\n    from prometheus_client import start_http_server, Gauge\n\
           \n    # Load data\n    X = np.load(features.path)\n    y = np.load(labels.path)\n\
           \n    # Split data\n    X_train, X_test, y_train, y_test = train_test_split(X,\
           \ y, test_size=0.2, random_state=42)\n\n    # Initialize model based on\
@@ -677,18 +678,19 @@ deploymentSpec:
           \ == \"XGBoost\":\n        model_obj = xgb.XGBRegressor(**hyperparameters)\n\
           \    elif model_type == \"LightGBM\":\n        model_obj = lgb.LGBMRegressor(**hyperparameters)\n\
           \    else:\n        raise ValueError(f\"Unsupported model type: {model_type}\"\
-          )\n\n    # Train model\n    model_obj.fit(X_train, y_train)\n\n    # Evaluate\
-          \ model\n    train_score = model_obj.score(X_train, y_train)\n    test_score\
-          \ = model_obj.score(X_test, y_test)\n\n    # Save metrics\n    metrics_dict\
-          \ = {\n        'model_type': model_type,\n        'train_r2': float(train_score),\n\
-          \        'test_r2': float(test_score)\n    }\n\n    with open(metrics.path,\
-          \ 'w') as f:\n        json.dump(metrics_dict, f, indent=2)\n\n    # Save\
-          \ model\n    joblib.dump(model_obj, model.path)\n\n    # Only log to MLflow\
-          \ if not in testing mode and if MLflow server is available\n    if not os.environ.get(\"\
-          TESTING\", \"False\").lower() == \"true\":\n        try:\n            #\
-          \ Set a timeout for MLflow connection attempts\n            import socket\n\
-          \            socket.setdefaulttimeout(5)  # 5 second timeout\n\n       \
-          \     # Try to connect to MLflow server\n            mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
+          )\n\n    start_time = time.time()\n    # Train model\n    model_obj.fit(X_train,\
+          \ y_train)\n\n    # Evaluate model\n    train_score = model_obj.score(X_train,\
+          \ y_train)\n    test_score = model_obj.score(X_test, y_test)\n\n    # Save\
+          \ metrics\n    metrics_dict = {\n        'model_type': model_type,\n   \
+          \     'train_r2': float(train_score),\n        'test_r2': float(test_score)\n\
+          \    }\n\n    with open(metrics.path, 'w') as f:\n        json.dump(metrics_dict,\
+          \ f, indent=2)\n\n    # Save model\n    joblib.dump(model_obj, model.path)\n\
+          \n    # Only log to MLflow if not in testing mode and if MLflow server is\
+          \ available\n    if not os.environ.get(\"TESTING\", \"False\").lower() ==\
+          \ \"true\":\n        try:\n            # Set a timeout for MLflow connection\
+          \ attempts\n            import socket\n            socket.setdefaulttimeout(5)\
+          \  # 5 second timeout\n\n            # Try to connect to MLflow server\n\
+          \            mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
           \            with mlflow.start_run():\n                mlflow.log_param(\"\
           model_type\", model_type)\n                mlflow.log_params(hyperparameters)\n\
           \                mlflow.log_metric(\"train_r2\", train_score)\n        \
@@ -700,7 +702,18 @@ deploymentSpec:
           Continuing without MLflow logging\")\n    else:\n        print(\"Testing\
           \ mode active, skipping MLflow logging\")\n\n    print(f\"Model saved to\
           \ {model.path}\")\n    print(f\"Metrics saved to {metrics.path}\")\n   \
-          \ print(f\"Training metrics: {metrics_dict}\")\n\n"
+          \ print(f\"Training metrics: {metrics_dict}\")\n    # Add Prometheus metrics\
+          \ server (after model evaluation)\n    prom_port = int(os.getenv(\"PROMETHEUS_PORT\"\
+          , 8000))\n    start_http_server(prom_port)\n\n    # Create Prometheus gauges\n\
+          \    train_r2_gauge = Gauge('train_r2_score', 'Training R\xB2 score', ['model_type'])\n\
+          \    test_r2_gauge = Gauge('test_r2_score', 'Test R\xB2 score', ['model_type'])\n\
+          \    training_time_gauge = Gauge('training_time_seconds', 'Training duration')\n\
+          \n    # Set metric values\n    train_r2_gauge.labels(model_type=model_type).set(train_score)\n\
+          \    test_r2_gauge.labels(model_type=model_type).set(test_score)\n    training_time_gauge.set(time.time()\
+          \ - start_time)\n\n"
+        env:
+        - name: PROMETHEUS_PORT
+          value: '8000'
         image: pes1ug19cs601/wine-quality-mlops:latest
     exec-train-2:
       container:
@@ -737,6 +750,7 @@ deploymentSpec:
           \ json\n    import numpy as np\n    from sklearn.model_selection import\
           \ train_test_split\n    from sklearn.ensemble import RandomForestRegressor\n\
           \    import xgboost as xgb\n    import lightgbm as lgb\n    import mlflow\n\
+          \    import time\n    from prometheus_client import start_http_server, Gauge\n\
           \n    # Load data\n    X = np.load(features.path)\n    y = np.load(labels.path)\n\
           \n    # Split data\n    X_train, X_test, y_train, y_test = train_test_split(X,\
           \ y, test_size=0.2, random_state=42)\n\n    # Initialize model based on\
@@ -746,18 +760,19 @@ deploymentSpec:
           \ == \"XGBoost\":\n        model_obj = xgb.XGBRegressor(**hyperparameters)\n\
           \    elif model_type == \"LightGBM\":\n        model_obj = lgb.LGBMRegressor(**hyperparameters)\n\
           \    else:\n        raise ValueError(f\"Unsupported model type: {model_type}\"\
-          )\n\n    # Train model\n    model_obj.fit(X_train, y_train)\n\n    # Evaluate\
-          \ model\n    train_score = model_obj.score(X_train, y_train)\n    test_score\
-          \ = model_obj.score(X_test, y_test)\n\n    # Save metrics\n    metrics_dict\
-          \ = {\n        'model_type': model_type,\n        'train_r2': float(train_score),\n\
-          \        'test_r2': float(test_score)\n    }\n\n    with open(metrics.path,\
-          \ 'w') as f:\n        json.dump(metrics_dict, f, indent=2)\n\n    # Save\
-          \ model\n    joblib.dump(model_obj, model.path)\n\n    # Only log to MLflow\
-          \ if not in testing mode and if MLflow server is available\n    if not os.environ.get(\"\
-          TESTING\", \"False\").lower() == \"true\":\n        try:\n            #\
-          \ Set a timeout for MLflow connection attempts\n            import socket\n\
-          \            socket.setdefaulttimeout(5)  # 5 second timeout\n\n       \
-          \     # Try to connect to MLflow server\n            mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
+          )\n\n    start_time = time.time()\n    # Train model\n    model_obj.fit(X_train,\
+          \ y_train)\n\n    # Evaluate model\n    train_score = model_obj.score(X_train,\
+          \ y_train)\n    test_score = model_obj.score(X_test, y_test)\n\n    # Save\
+          \ metrics\n    metrics_dict = {\n        'model_type': model_type,\n   \
+          \     'train_r2': float(train_score),\n        'test_r2': float(test_score)\n\
+          \    }\n\n    with open(metrics.path, 'w') as f:\n        json.dump(metrics_dict,\
+          \ f, indent=2)\n\n    # Save model\n    joblib.dump(model_obj, model.path)\n\
+          \n    # Only log to MLflow if not in testing mode and if MLflow server is\
+          \ available\n    if not os.environ.get(\"TESTING\", \"False\").lower() ==\
+          \ \"true\":\n        try:\n            # Set a timeout for MLflow connection\
+          \ attempts\n            import socket\n            socket.setdefaulttimeout(5)\
+          \  # 5 second timeout\n\n            # Try to connect to MLflow server\n\
+          \            mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
           \            with mlflow.start_run():\n                mlflow.log_param(\"\
           model_type\", model_type)\n                mlflow.log_params(hyperparameters)\n\
           \                mlflow.log_metric(\"train_r2\", train_score)\n        \
@@ -769,7 +784,18 @@ deploymentSpec:
           Continuing without MLflow logging\")\n    else:\n        print(\"Testing\
           \ mode active, skipping MLflow logging\")\n\n    print(f\"Model saved to\
           \ {model.path}\")\n    print(f\"Metrics saved to {metrics.path}\")\n   \
-          \ print(f\"Training metrics: {metrics_dict}\")\n\n"
+          \ print(f\"Training metrics: {metrics_dict}\")\n    # Add Prometheus metrics\
+          \ server (after model evaluation)\n    prom_port = int(os.getenv(\"PROMETHEUS_PORT\"\
+          , 8000))\n    start_http_server(prom_port)\n\n    # Create Prometheus gauges\n\
+          \    train_r2_gauge = Gauge('train_r2_score', 'Training R\xB2 score', ['model_type'])\n\
+          \    test_r2_gauge = Gauge('test_r2_score', 'Test R\xB2 score', ['model_type'])\n\
+          \    training_time_gauge = Gauge('training_time_seconds', 'Training duration')\n\
+          \n    # Set metric values\n    train_r2_gauge.labels(model_type=model_type).set(train_score)\n\
+          \    test_r2_gauge.labels(model_type=model_type).set(test_score)\n    training_time_gauge.set(time.time()\
+          \ - start_time)\n\n"
+        env:
+        - name: PROMETHEUS_PORT
+          value: '8000'
         image: pes1ug19cs601/wine-quality-mlops:latest
     exec-train-3:
       container:
@@ -806,6 +832,7 @@ deploymentSpec:
           \ json\n    import numpy as np\n    from sklearn.model_selection import\
           \ train_test_split\n    from sklearn.ensemble import RandomForestRegressor\n\
           \    import xgboost as xgb\n    import lightgbm as lgb\n    import mlflow\n\
+          \    import time\n    from prometheus_client import start_http_server, Gauge\n\
           \n    # Load data\n    X = np.load(features.path)\n    y = np.load(labels.path)\n\
           \n    # Split data\n    X_train, X_test, y_train, y_test = train_test_split(X,\
           \ y, test_size=0.2, random_state=42)\n\n    # Initialize model based on\
@@ -815,18 +842,19 @@ deploymentSpec:
           \ == \"XGBoost\":\n        model_obj = xgb.XGBRegressor(**hyperparameters)\n\
           \    elif model_type == \"LightGBM\":\n        model_obj = lgb.LGBMRegressor(**hyperparameters)\n\
           \    else:\n        raise ValueError(f\"Unsupported model type: {model_type}\"\
-          )\n\n    # Train model\n    model_obj.fit(X_train, y_train)\n\n    # Evaluate\
-          \ model\n    train_score = model_obj.score(X_train, y_train)\n    test_score\
-          \ = model_obj.score(X_test, y_test)\n\n    # Save metrics\n    metrics_dict\
-          \ = {\n        'model_type': model_type,\n        'train_r2': float(train_score),\n\
-          \        'test_r2': float(test_score)\n    }\n\n    with open(metrics.path,\
-          \ 'w') as f:\n        json.dump(metrics_dict, f, indent=2)\n\n    # Save\
-          \ model\n    joblib.dump(model_obj, model.path)\n\n    # Only log to MLflow\
-          \ if not in testing mode and if MLflow server is available\n    if not os.environ.get(\"\
-          TESTING\", \"False\").lower() == \"true\":\n        try:\n            #\
-          \ Set a timeout for MLflow connection attempts\n            import socket\n\
-          \            socket.setdefaulttimeout(5)  # 5 second timeout\n\n       \
-          \     # Try to connect to MLflow server\n            mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
+          )\n\n    start_time = time.time()\n    # Train model\n    model_obj.fit(X_train,\
+          \ y_train)\n\n    # Evaluate model\n    train_score = model_obj.score(X_train,\
+          \ y_train)\n    test_score = model_obj.score(X_test, y_test)\n\n    # Save\
+          \ metrics\n    metrics_dict = {\n        'model_type': model_type,\n   \
+          \     'train_r2': float(train_score),\n        'test_r2': float(test_score)\n\
+          \    }\n\n    with open(metrics.path, 'w') as f:\n        json.dump(metrics_dict,\
+          \ f, indent=2)\n\n    # Save model\n    joblib.dump(model_obj, model.path)\n\
+          \n    # Only log to MLflow if not in testing mode and if MLflow server is\
+          \ available\n    if not os.environ.get(\"TESTING\", \"False\").lower() ==\
+          \ \"true\":\n        try:\n            # Set a timeout for MLflow connection\
+          \ attempts\n            import socket\n            socket.setdefaulttimeout(5)\
+          \  # 5 second timeout\n\n            # Try to connect to MLflow server\n\
+          \            mlflow.set_tracking_uri('http://mlflow-service.mlops.svc.cluster.local:5000')\n\
           \            with mlflow.start_run():\n                mlflow.log_param(\"\
           model_type\", model_type)\n                mlflow.log_params(hyperparameters)\n\
           \                mlflow.log_metric(\"train_r2\", train_score)\n        \
@@ -838,7 +866,18 @@ deploymentSpec:
           Continuing without MLflow logging\")\n    else:\n        print(\"Testing\
           \ mode active, skipping MLflow logging\")\n\n    print(f\"Model saved to\
           \ {model.path}\")\n    print(f\"Metrics saved to {metrics.path}\")\n   \
-          \ print(f\"Training metrics: {metrics_dict}\")\n\n"
+          \ print(f\"Training metrics: {metrics_dict}\")\n    # Add Prometheus metrics\
+          \ server (after model evaluation)\n    prom_port = int(os.getenv(\"PROMETHEUS_PORT\"\
+          , 8000))\n    start_http_server(prom_port)\n\n    # Create Prometheus gauges\n\
+          \    train_r2_gauge = Gauge('train_r2_score', 'Training R\xB2 score', ['model_type'])\n\
+          \    test_r2_gauge = Gauge('test_r2_score', 'Test R\xB2 score', ['model_type'])\n\
+          \    training_time_gauge = Gauge('training_time_seconds', 'Training duration')\n\
+          \n    # Set metric values\n    train_r2_gauge.labels(model_type=model_type).set(train_score)\n\
+          \    test_r2_gauge.labels(model_type=model_type).set(test_score)\n    training_time_gauge.set(time.time()\
+          \ - start_time)\n\n"
+        env:
+        - name: PROMETHEUS_PORT
+          value: '8000'
         image: pes1ug19cs601/wine-quality-mlops:latest
     exec-validate-data:
       container:

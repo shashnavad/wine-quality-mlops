@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: training-component-monitor
+  namespace: kubeflow
+  labels:
+    release: prometheus  
+spec:
+  selector:
+    matchLabels:
+      app: training-component
+  endpoints:
+  - targetPort: 8000  
+    path: /metrics
+    interval: 15s
+  namespaceSelector:
+    matchNames:
+    - kubeflow

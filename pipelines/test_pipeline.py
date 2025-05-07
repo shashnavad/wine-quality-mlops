@@ -49,6 +49,14 @@ class MockArtifact:
     def __init__(self, path):
         self.path = path
 
+from unittest.mock import MagicMock
+
+class MockPrometheusClient:
+    Gauge = MagicMock()
+    start_http_server = MagicMock()
+
+sys.modules['prometheus_client'] = MockPrometheusClient
+
 def test_validate_data(tmp_path):
     original_cwd = os.getcwd()
     os.chdir(tmp_path)  # Work in temporary directory
@@ -228,6 +236,10 @@ def test_train(tmp_path):
     
     assert os.path.exists(model_path)
     assert os.path.exists(metrics_path)
+    # Verify Prometheus metrics setup
+    from prometheus_client import Gauge, start_http_server
+    Gauge.assert_any_call('train_r2_score', 'Training R² score', ['model_type'])
+    start_http_server.assert_called()
 
 
 def test_deploy_model(tmp_path):

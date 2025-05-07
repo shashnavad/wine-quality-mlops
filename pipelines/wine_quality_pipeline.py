@@ -87,6 +87,8 @@ def train(
     import xgboost as xgb
     import lightgbm as lgb
     import mlflow
+    import time
+    from prometheus_client import start_http_server, Gauge
 
     # Load data
     X = np.load(features.path)
@@ -106,6 +108,7 @@ def train(
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
     
+    start_time = time.time()
     # Train model
     model_obj.fit(X_train, y_train)
     
@@ -152,6 +155,19 @@ def train(
     print(f"Model saved to {model.path}")
     print(f"Metrics saved to {metrics.path}")
     print(f"Training metrics: {metrics_dict}")
+    # Add Prometheus metrics server (after model evaluation)
+    prom_port = int(os.getenv("PROMETHEUS_PORT", 8000))
+    start_http_server(prom_port)
+    
+    # Create Prometheus gauges
+    train_r2_gauge = Gauge('train_r2_score', 'Training R² score', ['model_type'])
+    test_r2_gauge = Gauge('test_r2_score', 'Test R² score', ['model_type'])
+    training_time_gauge = Gauge('training_time_seconds', 'Training duration')
+    
+    # Set metric values
+    train_r2_gauge.labels(model_type=model_type).set(train_score)
+    test_r2_gauge.labels(model_type=model_type).set(test_score)
+    training_time_gauge.set(time.time() - start_time)
 
 @component(
     base_image='pes1ug19cs601/wine-quality-mlops:latest'
@@ -596,8 +612,8 @@ if os.environ.get("TESTING", "False").lower() != "true":
                     hyperparameters=hyperparameters["RandomForest"],
                     model_type="RandomForest",
                     scaler=preprocess_task.outputs['scaler']
-                )
-            
+                ).set_env_variable(name="PROMETHEUS_PORT", value="8000")
+                
             if use_xgboost:
                 xgb_task = train(
                     features=preprocess_task.outputs['features'],
@@ -605,7 +621,7 @@ if os.environ.get("TESTING", "False").lower() != "true":
                     hyperparameters=hyperparameters["XGBoost"],
                     model_type="XGBoost",
                     scaler=preprocess_task.outputs['scaler']
-                )
+                ).set_env_variable(name="PROMETHEUS_PORT", value="8000")
             
             if use_lightgbm:
                 lgbm_task = train(
@@ -614,7 +630,7 @@ if os.environ.get("TESTING", "False").lower() != "true":
                     hyperparameters=hyperparameters["LightGBM"],
                     model_type="LightGBM",
                     scaler=preprocess_task.outputs['scaler']
-                )
+                ).set_env_variable(name="PROMETHEUS_PORT", value="8000")
             
             # Collect models and metrics from all active tasks
             model_list = []
